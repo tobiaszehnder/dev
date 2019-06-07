@@ -25,6 +25,7 @@ def main():
         record_ids = str.split(sys.argv[4], ',')
     output_file = factor_name + '.feather'
 
+    # compute background frequencies
     print 'compute background frequencies'
     bg_counts = np.zeros(4)
     with open(fasta_file, 'r') as f:
@@ -33,6 +34,7 @@ def main():
     bg_freqs = bg_counts / bg_counts.sum()
     bg_freqs
 
+    # compute PWM
     print 'compute PWM'
     global pwm, pwm_RC
     pwm = get_PWM(pcm_file, bg_freqs=bg_freqs, pseudo_count=1)
@@ -42,7 +44,7 @@ def main():
                   inplace=True)
     pwm['N'], pwm_RC['N'] = 0, 0
 
-    # runtime ~30-45s per GRB --> ~7h for ~600 GRBs
+    # compute energies
     print 'compute energies'
     l = pwm.shape[0]
     with open('stdout_%s.txt' %factor_name, 'w') as o:

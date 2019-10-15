@@ -27,7 +27,29 @@ def count_kmers(seq, kmer_ids, ks=[4,6,8,10]):
   return id_counter
 
 def count_kmers_wrapper(seq, kmer_ids, ks=[4,6,8,10]):
-  return
+  # this function takes a sequence and computes kmer counts for moving windows of 1000 bp
+  L = len(seq)
+  n = 1000
+  N = L - n + 1
+  kmer_counts = [{} for i in range(N)]
+  kmer_counts[0] = count_kmers(str(seq[:n]), kmer_ids, ks)
+  for i in range(1,N):
+    kmer_counts[i] = kmer_counts[i-1].copy()
+    kmers_to_remove = collections.Counter(seq[(i-1):(i-1+K)] for K in ks)
+    kmers_to_remove = {k:v for k,v in kmers_to_remove.items() if not 'N' in k}
+    kmers_to_add = collections.Counter(seq[:(i+n)][-K:] for K in ks)
+    kmers_to_add = {k:v for k,v in kmers_to_add.items() if not 'N' in k}
+    for k,v in kmers_to_remove.items():
+      if kmer_counts[i][kmer_ids[k]] == v:
+        del kmer_counts[i][kmer_ids[k]] # remove the id from the dict in case the count was set to zero in order to keep the dicts sparse
+      else:
+        kmer_counts[i][kmer_ids[k]] -= v
+    for k,v in kmers_to_add.items():
+      try:
+        kmer_counts[i][kmer_ids[k]] += v
+      except KeyError:
+        kmer_counts[i][kmer_ids[k]] = v
+  return kmer_counts
 
 def compute_similarity(kmer_counts_ref, kmer_counts_target, expected_overlap_approx):
   # this function computes a similarity score that is normalized with the expected number of overlapping k-mer IDs between two sequences.
@@ -51,7 +73,7 @@ def read_genome_size(assembly):
   filename = command.read().strip('\n')
   _ = command.close()
   if filename == '':
-    print 'Assembly not found. Add file to /project/wig-data/<organism>/genome/<assembly>.genome'
+    print('Assembly not found. Add file to /project/wig-data/<organism>/genome/<assembly>.genome')
     sys.exit(0)
   with open(filename, 'r') as f:
     genome_size = [tuple(str.split(x, '\t')) for x in f.read().splitlines()]
@@ -112,7 +134,6 @@ def split_interval(x, size):
   start = np.array([x_resized.start + size*i for i in range(n)])
   end = start + 500
   x_split_list = [pb.BedTool(' '.join(x), from_string=True) for x in zip(chrom, [str(x) for x in start], [str(x) for x in end])]
-#   print x_split_list
   if len(x_split_list) == 1:
     return x_split_list[0]
   x_split = x_split_list[0].cat(*x_split_list[1:], postmerge=False)

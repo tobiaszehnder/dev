@@ -16,11 +16,11 @@ def compute_energy(seq):
     return(np.log(np.exp(e)+np.exp(e_rc)))
 
 def main():
-    if len(sys.argv) < 4:
+    if len(sys.argv) < 5:
         print 'Usage: compute_energy.py <fasta_file> <PCM_file> <factor_name> <record_ids (optional, comma-separated)>'
         sys.exit(0)
         
-    _, fasta_file, pcm_file, factor_name = sys.argv[:4]
+    _, fasta_file, pcm_file, factor_name, = sys.argv[:4]
     if len(sys.argv) == 5:
         record_ids = str.split(sys.argv[4], ',')
     output_file = factor_name + '.feather'

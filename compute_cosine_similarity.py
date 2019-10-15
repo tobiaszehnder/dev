@@ -96,36 +96,50 @@ def main():
   kmer_ids = {kmer : get_kmer_id(kmer) for kmer in possible_kmers}
 
   # compute kmers for reference
-  print 'Count k-mers'
+  print 'Count reference k-mers'
   global kmer_counts_ref
   kmer_counts_ref_dict = {k : count_kmers(ref_seq, kmer_ids, ks=[k]) for k in ks}
 
   # compute kmers for target
+  print 'Count target k-mers'
   L = len(target_seq)
   n = 1000
   N = L - n + 1
   t1 = datetime.datetime.now()
-  kmer_counts_target_dict = {k : [count_kmers(target_seq[i:i+n], kmer_ids, ks=[k]) for i in range(N)] for k in ks}
+  kmer_counts_target_dict = {}
+  for k in ks:
+    print k
+    t1 = datetime.datetime.now()
+    kmer_counts_target_dict[k] = [count_kmers(target_seq[i:i+n], kmer_ids, ks=[k]) for i in range(N)]
+    print datetime.datetime.now() - t1
+  # kmer_counts_target_dict = {k : [count_kmers(target_seq[i:i+n], kmer_ids, ks=[k]) for i in range(N)] for k in ks}
   with open('time_for_counting_target_kmers', 'w') as f:
     f.write(str(datetime.datetime.now() - t1))
-  
+# read target bed and create data frame with 1 bp resolution                                                                                                            
+  target_regions = pd.read_csv(target_bed, sep='\t', header=None).loc[0]                                                                                                  
+  start = np.arange(target_regions[1], target_regions[1] + len(kmer_counts_target_dict[4])) # the bigwig's last entry starts at 1000 bp before the target region's end co\
+ordinate.                                                                                                                                                                 
+  end = start + 1                                                                                                                                                         
+  chrs = np.repeat(target_regions[0], len(start))   
   # read target bed and create data frame with 1 bp resolution
   target_regions = pd.read_csv(target_bed, sep='\t', header=None).loc[0]
   start = np.arange(target_regions[1], target_regions[1] + len(kmer_counts_target_dict[4])) # the bigwig's last entry starts at 1000 bp before the target region's end coordinate.
   end = start + 1
   chrs = np.repeat(target_regions[0], len(start))
-  # df = pd.DataFrame(np.array([chrom, start, end]), index=['chrom','start','end']).T
 
   # approximate E[o] = the expected number of unique k-mer ids overlapping between two random sequence windows of size 1000 bp
+  print 'Approximate expected number of shared k-mers between two random sequences'
   os_approx = {}
   ns = [float(len(set([v for k,v in kmer_ids.items() if len(k) == K]))) for K in ks]
+  t1 = datetime.datetime.now()
   for i,K in enumerate(ks):
     n = ns[i]
     k = 1000.
     expected_m = n - n*(1-1/n)**k
     expected_o = expected_m**2 / n
     os_approx[K] = expected_o
-
+  with open('time_for_counting_E_o', 'w') as f:
+    f.write(str(datetime.datetime.now() - t1))
   # compute similarity scores for every K
   print 'Compute binarized cosine similarities'
   sims = {k : [compute_similarity(kmer_counts_ref_list_dict[k], kmer_counts_target_dict[k][j], os_approx[k]) for j in range(N)] for k in ks}

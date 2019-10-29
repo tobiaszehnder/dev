@@ -12,11 +12,11 @@ This function computes pairwise sequence similarities between pairs of sequences
 
 2: find_homolog
 This function takes a single sequence in species X, projects it genomic location to species Y based on interpolated CNE coordinates
-and returns sequence similarities in a 1 Mbp window around this projected center in a bigwig file.
+and returns sequence similarities in a 500 Kbp window around this projected center in a bigwig file.
 
 -----------------
 
-Count k-mers of a reference region and its projected target (i.e. 1 MB region centered on the projected target coordinate)
+Count k-mers of a reference region and its projected target (i.e. 500 Kbp region centered on the projected target coordinate)
 Combine rev / comp / rev-comp in kmer-counts
 
 Introduce a dict with IDs such that d['AAAT'] = d['TAAA'] = d['TTTA'] = d['ATTT']
@@ -48,7 +48,7 @@ def approximate_expected_overlap(kmer_ids, ks):
   ns = [float(len(set([v for k,v in kmer_ids.items() if len(k) == K]))) for K in ks]
   for i,K in enumerate(ks):
     n = ns[i]
-    k = 1000.
+    k = 500.
     expected_m = n - n*(1-1/n)**k
     expected_o = expected_m**2 / n
     os_approx[K] = expected_o
@@ -71,7 +71,7 @@ def pairwise(regions_bed, assembly, ks):
   print 'Count k-mers'
   kmer_counts_dict = {seq_id : {k : count_kmers(seq, kmer_ids, ks=[k]) for k in ks} for seq_id, seq in seqs.items()}
 
-  # approximate E[o] = the expected number of unique k-mer ids overlapping between two random sequence windows of size 1000 bp (~25 sec)
+  # approximate E[o] = the expected number of unique k-mer ids overlapping between two random sequence windows of size 500 bp (~25 sec)
   print 'Approximate expected number of shared k-mers'
   os_approx = approximate_expected_overlap(kmer_ids, ks)
   
@@ -91,7 +91,7 @@ def pairwise(regions_bed, assembly, ks):
     pd.DataFrame(m_dict[k]).to_csv(outfile, sep='\t', index=False, header=False)
   return
 
-def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks):
+def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks, array_size=5e5):
   bsgenome_dict = {'hg19': 'BSgenome.Hsapiens.UCSC.hg19', 'mm10' : 'BSgenome.Mmusculus.UCSC.mm10'}
   if not ((reference_assembly in bsgenome_dict.keys()) & (target_assembly in bsgenome_dict)):
     print 'Error: specified assemblies are not yet supported in this script. Feel free to add.'
@@ -119,7 +119,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
   cnes_target_center = sorted([float((cne_upstream[4] + cne_upstream[5])) / 2, float((cne_downstream[4] + cne_downstream[5]) / 2)]) # use sort as we don't know target orientation
   ref_target_position = int(cnes_target_center[0] + (cnes_target_center[1] - cnes_target_center[0]) * ref_relative_position)
   target_bed = reference_bed.replace('.bed', '_target.bed')
-  pd.DataFrame(np.array([[cne_upstream.values[0,3], int(ref_target_position-5e5), int(ref_target_position+5e5), ref_region.name]])).to_csv(target_bed, sep='\t', header=None, index=False)
+  pd.DataFrame(np.array([[cne_upstream.values[0,3], int(ref_target_position-array_size/2), int(ref_target_position+array_size/2), ref_region.name]])).to_csv(target_bed, sep='\t', header=None, index=False)
 
   # write fasta and fetch sequence using get_sequence.R
   print 'Fetch target sequence'
@@ -143,18 +143,18 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
 
   # read target bed and create data frame with 1 bp resolution
   target_regions = pd.read_csv(target_bed, sep='\t', header=None).loc[0]
-  start = np.arange(target_regions[1], target_regions[1] + len(kmer_counts_target_dict.values()[0])) # the bigwig's last entry starts at 1000 bp before the target region's end coordinate.
+  start = np.arange(target_regions[1], target_regions[1] + len(kmer_counts_target_dict.values()[0])) # the bigwig's last entry starts at 500 bp before the target region's end coordinate.
   end = start + 1
   chrs = np.repeat(target_regions[0], len(start))   
 
-  # approximate E[o] = the expected number of unique k-mer ids overlapping between two random sequence windows of size 1000 bp (~25 sec)
+  # approximate E[o] = the expected number of unique k-mer ids overlapping between two random sequence windows of size 500 bp (~25 sec)
   print 'Approximate expected number of shared k-mers between two random sequences'
   os_approx = approximate_expected_overlap(kmer_ids, ks)
   
   # compute similarity scores for every K (~6 min for 1 Mbp)
   print 'Compute binarized cosine similarities'
   L = len(target_seq)
-  n = 1000
+  n = 500
   N = L - n + 1
   sims = {k : [compute_similarity(kmer_counts_ref_dict[k], kmer_counts_target_dict[k][j], os_approx[k]) for j in range(N)] for k in ks}
 

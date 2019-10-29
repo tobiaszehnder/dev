@@ -152,7 +152,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
   os_approx = approximate_expected_overlap(kmer_ids, ks)
   
   # compute similarity scores for every K (~6 min for 1 Mbp)
-  print 'Compute binarized cosine similarities'
+  print 'Compute similarities'
   L = len(target_seq)
   n = 500
   N = L - n + 1

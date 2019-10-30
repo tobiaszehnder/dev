@@ -91,7 +91,7 @@ def pairwise(regions_bed, assembly, ks):
     pd.DataFrame(m_dict[k]).to_csv(outfile, sep='\t', index=False, header=False)
   return
 
-def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks, array_size=5e5):
+def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks, array_size=5e5, window_size=500):
   bsgenome_dict = {'hg19': 'BSgenome.Hsapiens.UCSC.hg19', 'mm10' : 'BSgenome.Mmusculus.UCSC.mm10'}
   if not ((reference_assembly in bsgenome_dict.keys()) & (target_assembly in bsgenome_dict)):
     print 'Error: specified assemblies are not yet supported in this script. Feel free to add.'
@@ -139,7 +139,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
 
   # compute kmers for target (~8 min for 1 Mbp)
   print 'Count target k-mers'
-  kmer_counts_target_dict = {k : count_kmers_wrapper(target_seq, kmer_ids, ks=[k]) for k in ks}
+  kmer_counts_target_dict = {k : count_kmers_wrapper(target_seq, kmer_ids, ks=[k], window_size=window_size) for k in ks}
 
   # read target bed and create data frame with 1 bp resolution
   target_regions = pd.read_csv(target_bed, sep='\t', header=None).loc[0]
@@ -154,8 +154,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
   # compute similarity scores for every K (~6 min for 1 Mbp)
   print 'Compute similarities'
   L = len(target_seq)
-  n = 500
-  N = L - n + 1
+  N = L - window_size + 1
   sims = {k : [compute_similarity(kmer_counts_ref_dict[k], kmer_counts_target_dict[k][j], os_approx[k]) for j in range(N)] for k in ks}
 
   # compute max / mean similarity ratio and write to file
@@ -183,6 +182,8 @@ find_homolog:
 This function takes a single sequence in species X, projects it genomic location to species Y based on interpolated CNE coordinates
 and returns sequence similarities in a 1 Mbp window around this projected center in a bigwig file.'''
 
+  window_size = 500
+  array_size = 5e5
   try:
     if sys.argv[1] == 'pairwise':
       _, fnc, regions_bed, assembly, ks = sys.argv
@@ -191,7 +192,7 @@ and returns sequence similarities in a 1 Mbp window around this projected center
     elif sys.argv[1] == 'find_homolog':
       _, fnc, reference_bed, reference_assembly, target_assembly, cnefile, ks = sys.argv
       ks = map(int, ks.split(','))
-      find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks)
+      find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks, array_size, window_size)
     else:
       print usage_msg
       sys.exit(1)

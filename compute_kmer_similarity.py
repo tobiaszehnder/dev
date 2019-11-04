@@ -37,7 +37,7 @@ if 'functions' in sys.modules:
 from functions import *
 
 def get_BSgenome_name(assembly):
-  bsgenome_dict = {'hg19': 'BSgenome.Hsapiens.UCSC.hg19', 'mm10' : 'BSgenome.Mmusculus.UCSC.mm10'}
+  bsgenome_dict = {'hg19': 'BSgenome.Hsapiens.UCSC.hg19', 'mm10' : 'BSgenome.Mmusculus.UCSC.mm10', 'mm9' : 'BSgenome.Mmusculus.UCSC.mm9'}
   if not assembly in bsgenome_dict.keys():
     print 'Error: specified assembly "%s" is not yet supported in this script. Feel free to add.' %assembly
     sys.exit(1)
@@ -57,7 +57,7 @@ def approximate_expected_overlap(kmer_ids, ks):
 def pairwise(regions_bed, assembly, ks):
   print 'Fetch sequences'
   seqs = {}
-  subprocess.check_call(['Rscript', 'get_sequence.R', regions_bed, get_BSgenome_name(assembly)], shell=False)
+  subprocess.check_call(['Rscript', '/home/zehnder/dev/get_sequence.R', regions_bed, get_BSgenome_name(assembly)], shell=False)
   with open(regions_bed.replace('bed', 'fasta'), 'r') as f:
     for record in SeqIO.parse(f, "fasta"):
       seqs[record.id] = str(record.seq)
@@ -99,7 +99,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
   
   # read reference bed and fetch sequence from genome fasta by running the get_sequence.R (writes it to bedfile.fasta)
   print 'Fetch reference sequence'
-  subprocess.check_call(['Rscript', 'get_sequence.R', reference_bed, bsgenome_dict[reference_assembly]], shell=False)
+  subprocess.check_call(['Rscript', '/home/zehnder/dev/get_sequence.R', reference_bed, bsgenome_dict[reference_assembly]], shell=False)
   with open(reference_bed.replace('bed', 'fasta'), 'r') as f:
     for record in SeqIO.parse(f, "fasta"):
       ref_id = record.id
@@ -123,7 +123,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
 
   # write fasta and fetch sequence using get_sequence.R
   print 'Fetch target sequence'
-  subprocess.check_call(['Rscript', 'get_sequence.R', target_bed, bsgenome_dict[target_assembly]], shell=False)
+  subprocess.check_call(['Rscript', '/home/zehnder/dev/get_sequence.R', target_bed, bsgenome_dict[target_assembly]], shell=False)
   with open(target_bed.replace('bed', 'fasta'), 'r') as f:
     for record in SeqIO.parse(f, "fasta"):
       target_seq = str(record.seq)

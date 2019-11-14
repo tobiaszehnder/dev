@@ -216,8 +216,9 @@ and returns sequence similarities in a 1 Mbp window around this projected center
     else:
       print usage_msg
       sys.exit(1)
-  except (IndexError, ValueError):
-    print usage_msg
+  except (IndexError, ValueError) as e:
+    print(e)
+    print '\n' + usage_msg
     sys.exit(1)
 
   print 'Done'

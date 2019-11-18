@@ -113,7 +113,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
       break # ignore any subsequent sequences for now
 
   # read CNE file and project center of reference sequence to the target genome
-  # extend location of target genome to 1 MB and write to target.bed. Use it with `get_sequence.R` to fetch the sequence.
+  # extend location of target genome to array_size and write to target.bed. Use it with `get_sequence.R` to fetch the sequence.
   print 'Project to target genome'
   cnes = pd.read_csv(cnefile, sep='\t', header=None).sort_values([0,1,2])
   ref_region = pd.read_csv(reference_bed, sep='\t', header=None, usecols=range(4), index_col=3, names=['chrom','start','end','name']).iloc[0]
@@ -122,7 +122,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
   cne_downstream = cnes.loc[(cnes[0] == ref_region['chrom']) & ((cnes[1]+cnes[2])/2 > ref_center),].head(1)
   cne_neighbours_center = [float((cne_upstream[1] + cne_upstream[2]) / 2), float((cne_downstream[1] + cne_downstream[2]) / 2)]
   ref_relative_position = (ref_center - cne_neighbours_center[0]) / (cne_neighbours_center[1] - cne_neighbours_center[0])
-  cnes_target_center = sorted([float((cne_upstream[4] + cne_upstream[5])) / 2, float((cne_downstream[4] + cne_downstream[5]) / 2)]) # use sort as we don't know target orientation
+  cnes_target_center = [float((cne_upstream[4] + cne_upstream[5])) / 2, float((cne_downstream[4] + cne_downstream[5]) / 2)]
   ref_target_position = int(cnes_target_center[0] + (cnes_target_center[1] - cnes_target_center[0]) * ref_relative_position)
   target_bed = reference_bed.replace('.bed', '_target.bed')
   pd.DataFrame(np.array([[cne_upstream.values[0,3], int(ref_target_position-array_size/2), int(ref_target_position+array_size/2), ref_region.name]])).to_csv(target_bed, sep='\t', header=None, index=False)

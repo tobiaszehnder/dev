@@ -28,7 +28,7 @@ such that e.g. IDTATC#=3x50+0x51+3x52+1x53+4x54=3+0+75+125+2500=2703
 For every possible k-mer, assign the minimum of the IDs of the k-mer, its reverse, complement and reverse complement to all of those k-mers.
 '''
 
-import numpy as np, pandas as pd, pybedtools as pb, scipy, sys, os.path, itertools, subprocess, json, datetime
+import numpy as np, pandas as pd, pybedtools as pb, scipy, sys, os.path, itertools, subprocess, json, datetime, collections
 from Bio import SeqIO
 from multiprocessing.pool import ThreadPool
 sys.path.insert(1, '/project/wig/tobias/reg_evo/jupyter/')
@@ -39,7 +39,7 @@ from functions import *
 def get_BSgenome_name(assembly):
   bsgenome_dict = {'hg19': 'BSgenome.Hsapiens.UCSC.hg19', 'mm10' : 'BSgenome.Mmusculus.UCSC.mm10', 'mm9' : 'BSgenome.Mmusculus.UCSC.mm9'}
   if not assembly in bsgenome_dict.keys():
-    print 'Error: specified assembly "%s" is not yet supported in this script. Feel free to add.' %assembly
+    print('Error: specified assembly "%s" is not yet supported in this script. Feel free to add.' %assembly)
     sys.exit(1)
   return bsgenome_dict[assembly]
 
@@ -56,35 +56,35 @@ def get_BSgenome_name(assembly):
 #       os_approx[K] = sum([os_approx[k] for k in ks[:-1]])
 #   return os_approx
 
-def pairwise(regions_bed, assembly, ks, window_size, method):
-  print 'Fetch sequences'
-  seqs = {}
+def pairwise(regions_bed, assembly, ks, window_size, method, outdir):
+  print('Fetch sequences')
+  seqs = collections.OrderedDict()
   subprocess.check_call(['Rscript', '/home/zehnder/dev/get_sequence.R', regions_bed, get_BSgenome_name(assembly)], shell=False)
   with open(regions_bed.replace('bed', 'fasta'), 'r') as f:
     for record in SeqIO.parse(f, "fasta"):
       seqs[record.id] = str(record.seq)
 
   # create dict with IDs and initiate id_counter dict (~20 sec)
-  print 'Assign k-mer IDs'
+  print('Assign k-mer IDs')
   possible_kmers = [''.join(p) for k in ks for p in itertools.product(list('ACGT'), repeat=k)]
   kmer_ids = {kmer : get_kmer_id(kmer) for kmer in possible_kmers}
 
   # count kmers
-  print 'Count k-mers'
+  print('Count k-mers')
   kmer_counts_dict = {seq_id : {k : count_kmers(seq, kmer_ids, ks=[k]) for k in ks} for seq_id, seq in seqs.items()}
 
   # # the following chunk is not needed anymore as we normalize with the reference now, which is also normalized with os_approx, hence cancels it out.
   # # approximate E[o] = the expected number of unique k-mer ids overlapping between two random sequence windows of size 500 bp (~25 sec)
   # if method == 'overlap':
-  #   print 'Approximate expected number of shared k-mers'
+  #   print('Approximate expected number of shared k-mers')
   #   os_approx = approximate_expected_overlap(kmer_ids, ks, window_size)
   # else:
   #   os_approx = {k : None for k in ks}
     
   # compute similarity scores for every K (~6 min for 1 Mbp)
-  print 'Compute pairwise similarities'
+  print('Compute pairwise similarities')
   m_dict = {k : np.full([len(seqs), len(seqs)], np.nan) for k in ks}
-  seq_ids = sorted(seqs.keys())
+  seq_ids = seqs.keys()
   for k in ks:
     for i,id_i in enumerate(seq_ids):
       for j in range(i,len(seqs)):
@@ -93,18 +93,21 @@ def pairwise(regions_bed, assembly, ks, window_size, method):
 
   # write table to file
   for k in ks:
-    outfile = regions_bed.replace('.bed', '_%s-mer_pairwise_similarities.table' %k).replace('bed/','output/')
-    pd.DataFrame(m_dict[k]).to_csv(outfile, sep='\t', index=False, header=False)
+    # outfile = regions_bed.replace('.bed', '_%s-mer_pairwise_similarities.table' %k).replace('bed/','output/')
+    outfile = outdir + '/' + os.path.basename(regions_bed).replace('.bed', '_%s-mer_pairwise_%s.table' %(k,method))
+    df = pd.DataFrame(m_dict[k])
+    df.index = df.columns = seqs.keys()
+    df.to_csv(outfile, sep='\t', index=True, header=True)
   return
 
-def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks, method, window_size=500, array_size=5e5):
+def find_homolog(reference_bed, reference_assembly, target_assembly, target_filter, cnefile, ks, method, window_size=500, array_size=5e5):
   bsgenome_dict = {'hg19': 'BSgenome.Hsapiens.UCSC.hg19', 'mm10' : 'BSgenome.Mmusculus.UCSC.mm10'}
   if not ((reference_assembly in bsgenome_dict.keys()) & (target_assembly in bsgenome_dict)):
-    print 'Error: specified assemblies are not yet supported in this script. Feel free to add.'
+    print('Error: specified assemblies are not yet supported in this script. Feel free to add.')
     sys.exit(1)
   
   # read reference bed and fetch sequence from genome fasta by running the get_sequence.R (writes it to bedfile.fasta)
-  print 'Fetch reference sequence'
+  print('Fetch reference sequence')
   subprocess.check_call(['Rscript', '/home/zehnder/dev/get_sequence.R', reference_bed, bsgenome_dict[reference_assembly]], shell=False)
   with open(reference_bed.replace('bed', 'fasta'), 'r') as f:
     for record in SeqIO.parse(f, "fasta"):
@@ -114,7 +117,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
 
   # read CNE file and project center of reference sequence to the target genome
   # extend location of target genome to array_size and write to target.bed. Use it with `get_sequence.R` to fetch the sequence.
-  print 'Project to target genome'
+  print('Project to target genome')
   cnes = pd.read_csv(cnefile, sep='\t', header=None).sort_values([0,1,2])
   ref_region = pd.read_csv(reference_bed, sep='\t', header=None, usecols=range(4), index_col=3, names=['chrom','start','end','name']).iloc[0]
   ref_center = (ref_region['start']+ref_region['end'])/2
@@ -128,28 +131,28 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
   pd.DataFrame(np.array([[cne_upstream.values[0,3], int(ref_target_position-array_size/2), int(ref_target_position+array_size/2), ref_region.name]])).to_csv(target_bed, sep='\t', header=None, index=False)
 
   # write fasta and fetch sequence using get_sequence.R
-  print 'Fetch target sequence'
-  subprocess.check_call(['Rscript', '/home/zehnder/dev/get_sequence.R', target_bed, bsgenome_dict[target_assembly]], shell=False)
+  print('Fetch target sequence')
+  subprocess.check_call(['Rscript', '/home/zehnder/dev/get_sequence.R', target_bed, bsgenome_dict[target_assembly], target_filter], shell=False)
   with open(target_bed.replace('bed', 'fasta'), 'r') as f:
     for record in SeqIO.parse(f, "fasta"):
       target_seq = str(record.seq)
   L = len(target_seq)
   N = L - window_size + 1
-  
+
   # create dict with IDs and initiate id_counter dict (~20 sec)
-  print 'Assign k-mer IDs'
+  print('Assign k-mer IDs')
   possible_kmers = [''.join(p) for k in ks for p in itertools.product(list('ACGT'), repeat=k)]
   kmer_ids = {kmer : get_kmer_id(kmer) for kmer in possible_kmers}
 
   # compute kmers for reference
-  print 'Count reference k-mers'
+  print('Count reference k-mers')
   kmer_counts_ref_dict = {k : count_kmers(ref_seq, kmer_ids, ks=[k]) for k in ks}
   if len(ks) > 1:
     combined_ks = ','.join([str(k) for k in ks])
     kmer_counts_ref_dict[combined_ks] = {key: val for d in [kmer_counts_ref_dict[k] for k in ks] for key, val in d.items()} # combine k's
-
+    
   # compute kmers for target (~8 min for 1 Mbp)
-  print 'Count target k-mers'
+  print('Count target k-mers')
   kmer_counts_target_dict = {k : count_kmers_wrapper(target_seq, kmer_ids, ks=[k], window_size=window_size) for k in ks}
   if len(ks) > 1:
     kmer_counts_target_dict[combined_ks] = [{key: val for d in [kmer_counts_target_dict[k][i] for k in ks] for key, val in d.items()} for i in range(N)] # combine k's
@@ -164,14 +167,22 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
   # # the following chunk is not needed anymore as we normalize with the reference now, which is also normalized with os_approx, hence cancels it out.
   # # approximate E[o] = the expected number of unique k-mer ids overlapping between two random sequence windows of size 500 bp (~25 sec)
   # if method == 'overlap':
-  #   print 'Approximate expected number of shared k-mers'
+  #   print('Approximate expected number of shared k-mers')
   #   os_approx = approximate_expected_overlap(kmer_ids, ks, window_size)
   # else:
   #   os_approx = {k : None for k in ks}
 
   # compute similarity scores for every K (~6 min for 1 Mbp)
-  print 'Compute similarities'
+  print('Compute similarities')
   sims = {k : [compute_similarity(kmer_counts_ref_dict[k], kmer_counts_target_dict[k][j], method) for j in range(N)] for k in ks}
+
+  # mask filter regions (only implemented for 1 region so far...)
+  filtr = pd.read_csv(target_filter, sep='\t', header=None, usecols=range(3))
+  filtr = filtr[(filtr[0] == target_regions[0]) & (filtr[1] < target_regions[2]) & (filtr[2] > target_regions[1])] # filter for regions overlapping with target region
+  max_coord = len(list(kmer_counts_target_dict.values())[0])
+  # get the mask index by taking the range over every filter region, subtracting the start coordinate of the target region and limit it to 0 and the maximum (e.g. 99500 for array_size of 100000)
+  mask_idx = np.unique([y for x in filtr.apply(lambda x: np.arange(max(0, x[1]-target_regions[1]), min(x[2]-target_regions[1], max_coord)), axis=1) for y in x]) # the y / x business flattens the list
+  sims_masked = {k : mask_filter(np.array(sims[k]), mask_idx) for k in sims.keys()}
   
   # write json with similarities
   if len(ks) > 1:
@@ -180,7 +191,7 @@ def find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks
     ks_string = str(ks[0])
   jsonfile = target_bed.replace('.bed', '_%s-mer_%s.json' %(ks_string, method)).replace('bed/','output/')
   with open(jsonfile, 'w') as f:
-    json.dump(sims, f)
+    json.dump(sims_masked, f)
   
   return
 
@@ -204,24 +215,24 @@ and returns sequence similarities in a 1 Mbp window around this projected center
   # array_size = 5e5
   try:
     if sys.argv[1] == 'pairwise':
-      _, fnc, regions_bed, assembly, ks, window_size, method = sys.argv
+      _, fnc, regions_bed, assembly, ks, window_size, method, outdir = sys.argv
       window_size = int(window_size)
       ks = map(int, ks.split(','))
-      pairwise(regions_bed, assembly, ks, window_size, method)
+      pairwise(regions_bed, assembly, ks, window_size, method, outdir)
     elif sys.argv[1] == 'find_homolog':
-      _, fnc, reference_bed, reference_assembly, target_assembly, cnefile, ks, window_size, array_size, method = sys.argv
+      _, fnc, reference_bed, reference_assembly, target_assembly, target_filter, cnefile, ks, window_size, array_size, method = sys.argv
       window_size, array_size = map(int, (window_size, array_size))
       ks = map(int, ks.split(','))
-      find_homolog(reference_bed, reference_assembly, target_assembly, cnefile, ks, method, window_size, array_size)
+      find_homolog(reference_bed, reference_assembly, target_assembly, target_filter, cnefile, ks, method, window_size, array_size)
     else:
-      print usage_msg
+      print(usage_msg)
       sys.exit(1)
   except (IndexError, ValueError) as e:
     print(e)
-    print '\n' + usage_msg
+    print('\n' + usage_msg)
     sys.exit(1)
 
-  print 'Done'
+  print('Done')
   
 if __name__ == '__main__':
   main()

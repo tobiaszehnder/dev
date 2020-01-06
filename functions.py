@@ -3,6 +3,11 @@
 
 import numpy as np, pandas as pd, pickle, pybedtools as pb, os, pyBigWig, collections
 
+# function to set scores at given indices (mask_coords) to zero. this is used for the RepeatMasker regions that overlap the target region.
+def mask_filter(scores, mask_coords):
+  scores[mask_coords] = np.nan
+  return scores.tolist()
+
 def get_kmer_id(x):
   # compute a unique ID for a given kmer as the sum of the products of the letter at position i (A=0, C=1, ...) times alphabet size to the power of the position number
   # (e.g. 5^0 at the first position). include a character `x` to prevent k-mers with different k to have the same ID.
@@ -50,87 +55,46 @@ def count_kmers_wrapper(seq, kmer_ids, ks=[4,6,8,10], window_size=500):
         kmer_counts[i][kmer_ids[k]] = v
   return kmer_counts
 
-def compute_similarity(kmer_counts_ref, kmer_counts_target, expected_overlap_approx=None, methods=[]):
-  # This function computes a similarity score between two sequences. Note that this function only works for one K at a time.
+def compute_similarity(kmer_counts_ref, kmer_counts_target, method, expected_overlap_approx=None):
+  # This function computes a similarity score between two sequences. Note that this function only works for one K and method at a time.
   sim = {}
   ref = kmer_counts_ref.copy()
   target = kmer_counts_target.copy()
+  if len(target) == 0: # if the whole target window is 'NNNNNN...', then there will be no k-mer counts and the L2 norm will get zero and a division by zero will occur. return a similarity of zero.
+    return 0
   common_ids = set(ref).intersection(set(target))
   union_keys = {key : val for d in [ref, target] for key, val in d.items()}.keys()
-  if 'overlap' in methods:
-    sim['overlap'] = len(common_ids) / expected_overlap_approx
-  if ('tanimoto' in methods) | ('tanimoto_binarized' in methods):
+  if method == 'overlap':
+    return len(common_ids) / expected_overlap_approx
+  if 'tanimoto' in method:
     ref.update({key : 0 for key in list(set(union_keys) - set(ref.keys()))})
     target.update({key : 0 for key in list(set(union_keys) - set(target.keys()))})
-    if 'tanimoto' in methods:
+    if method == 'tanimoto':
       ref_vector = [ref[key] for key in union_keys]
       target_vector = [target[key] for key in union_keys]
-      sim['tanimoto'] = np.dot(ref_vector, target_vector) / float(np.dot(ref_vector, ref_vector) + np.dot(target_vector, target_vector) - np.dot(ref_vector, target_vector))
-    if 'tanimoto_binarized' in methods:
+      return np.dot(ref_vector, target_vector) / float(np.dot(ref_vector, ref_vector) + np.dot(target_vector, target_vector) - np.dot(ref_vector, target_vector))
+    elif method == 'tanimoto_binarized':
       ref_binarized = np.where(np.array(ref_vector) > 0, 1, 0)
       target_binarized = np.where(np.array(target_vector) > 0, 1, 0)
-      sim['tanimoto_binarized'] = np.dot(ref_binarized, target_binarized) / float(np.dot(ref_binarized, ref_binarized) + np.dot(target_binarized, target_binarized) - np.dot(ref_binarized, target_binarized))
-  if len(list(set(['dot', 'dot_binarized', 'cosine', 'cosine_binarized']) & set(methods))) > 0:
+      return np.dot(ref_binarized, target_binarized) / float(np.dot(ref_binarized, ref_binarized) + np.dot(target_binarized, target_binarized) - np.dot(ref_binarized, target_binarized))
+  if method in ['dot', 'dot_binarized', 'cosine', 'cosine_binarized']:
     ref_common = np.array([ref[cid] for cid in common_ids], dtype=float)
     target_common = np.array([target[cid] for cid in common_ids], dtype=float)
-  if 'dot' in methods:
-    sim['dot'] = np.dot(ref_common, target_common) / float(len(union_keys))
-  if 'cosine' in methods:
-    ref_L2_norm = np.linalg.norm(ref.values()) # important: norm is not from sparse but from full values, not just common
-    target_L2_norm = np.linalg.norm(target.values())
-    sim['cosine'] = np.dot(ref_common, target_common) / (ref_L2_norm * target_L2_norm)
-  if ('dot_binarized' in methods) | ('cosine_binarized' in methods):
+  if method == 'dot':
+    return np.dot(ref_common, target_common) / float(len(union_keys))
+  if 'cosine' in method:
+    ref_L2_norm = np.linalg.norm(list(ref.values())) # important: norm is not from sparse but from full values, not just common
+    target_L2_norm = np.linalg.norm(list(target.values()))
+  if method == 'cosine':
+    return np.dot(ref_common, target_common) / (ref_L2_norm * target_L2_norm)
+  if 'binarized' in method:
     ref_common_binarized = np.where(ref_common > 0, 1, 0)
     target_common_binarized = np.where(target_common > 0, 1, 0)
-  if 'dot_binarized' in methods:
-    sim['dot_binarized'] = np.dot(ref_common_binarized, target_common_binarized) / float(len(union_keys))
-  if 'cosine_binarized' in methods:
-    if ('ref_L2_norm' not in locals()) | ('target_L2_norm' not in locals()):
-      ref_L2_norm = np.linalg.norm(ref.values()) # important: norm is not from sparse but from full values, not just common
-      target_L2_norm = np.linalg.norm(target.values())
-    sim['cosine_binarized'] = np.dot(ref_common_binarized, target_common_binarized) / (ref_L2_norm * target_L2_norm)
-  return sim
-
-# def compute_similarity(kmer_counts_ref, kmer_counts_target, expected_overlap_approx=None, method):
-#   # This function computes a similarity score between two sequences. Note that this function only works for one K at a time.
-#   sim = {}
-#   ref = kmer_counts_ref.copy()
-#   target = kmer_counts_target.copy()
-#   common_ids = set(ref).intersection(set(target))
-#   union_keys = {key : val for d in [ref, target] for key, val in d.items()}.keys()
-#   if method == 'overlap':
-#     return len(common_ids) / expected_overlap_approx
-#   if ('tanimoto' in methods) | ('tanimoto_binarized' in methods):
-#     ref.update({key : 0 for key in list(set(union_keys) - set(ref.keys()))})
-#     target.update({key : 0 for key in list(set(union_keys) - set(target.keys()))})
-#     if 'tanimoto' in methods:
-#       ref_vector = [ref[key] for key in union_keys]
-#       target_vector = [target[key] for key in union_keys]
-#       sim['tanimoto'] = np.dot(ref_vector, target_vector) / float(np.dot(ref_vector, ref_vector) + np.dot(target_vector, target_vector) - np.dot(ref_vector, target_vector))
-#     if 'tanimoto_binarized' in methods:
-#       ref_binarized = np.where(np.array(ref_vector) > 0, 1, 0)
-#       target_binarized = np.where(np.array(target_vector) > 0, 1, 0)
-#       sim['tanimoto_binarized'] = np.dot(ref_binarized, target_binarized) / float(np.dot(ref_binarized, ref_binarized) + np.dot(target_binarized, target_binarized) - np.dot(ref_binarized, target_binarized))
-#   if len(list(set(['dot', 'dot_binarized', 'cosine', 'cosine_binarized']) & set(methods))) > 0:
-#     ref_common = np.array([ref[cid] for cid in common_ids], dtype=float)
-#     target_common = np.array([target[cid] for cid in common_ids], dtype=float)
-#   if 'dot' in methods:
-#     sim['dot'] = np.dot(ref_common, target_common) / float(len(union_keys))
-#   if 'cosine' in methods:
-#     ref_L2_norm = np.linalg.norm(ref.values()) # important: norm is not from sparse but from full values, not just common
-#     target_L2_norm = np.linalg.norm(target.values())
-#     sim['cosine'] = np.dot(ref_common, target_common) / (ref_L2_norm * target_L2_norm)
-#   if ('dot_binarized' in methods) | ('cosine_binarized' in methods):
-#     ref_common_binarized = np.where(ref_common > 0, 1, 0)
-#     target_common_binarized = np.where(target_common > 0, 1, 0)
-#   if 'dot_binarized' in methods:
-#     sim['dot_binarized'] = np.dot(ref_common_binarized, target_common_binarized) / float(len(union_keys))
-#   if 'cosine_binarized' in methods:
-#     if ('ref_L2_norm' not in locals()) | ('target_L2_norm' not in locals()):
-#       ref_L2_norm = np.linalg.norm(ref.values()) # important: norm is not from sparse but from full values, not just common
-#       target_L2_norm = np.linalg.norm(target.values())
-#     sim['cosine_binarized'] = np.dot(ref_common_binarized, target_common_binarized) / (ref_L2_norm * target_L2_norm)
-#   return sim
+  if method == 'dot_binarized':
+    return np.dot(ref_common_binarized, target_common_binarized) / float(len(union_keys))
+  if method == 'cosine_binarized':
+    return np.dot(ref_common_binarized, target_common_binarized) / (ref_L2_norm * target_L2_norm)
+  return
 
 # function to write bigwig files with the pyBigWig module
 def write_bigwig(chrs, start, end, scores, outfile, assembly):

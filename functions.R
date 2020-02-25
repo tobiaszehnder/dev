@@ -1,6 +1,41 @@
 library(rtracklayer); library(motifcounter); library(ggplot2); library(RColorBrewer); library(dplyr); library(ehmm); library(depmixS4); library(fANCOVA)
 library(TxDb.Hsapiens.UCSC.hg19.knownGene); library(TxDb.Ggallus.UCSC.galGal4.refGene)
 
+# function to load repeats from '/project/wig/tobias/reg_evo/data/repeats'
+get_repeats <- function(spcs, repeat_dir='/project/wig/tobias/reg_evo/data/repeats') {
+  if (!dir.exists(repeat_dir)) stop('repeat_dir does not exist')
+  gr <- GRanges()
+  repeats_file <- file.path(repeat_dir, sprintf('repeats_%s.bed', spcs))
+  if (file.exists(repeats_file)) {
+    gr <- import.bed(repeats_file)
+  }
+  gr <- tryCatch(keepStandardChromosomes(gr, pruning.mode='coarse'),
+                 error=function(cond) return(gr))
+  return(gr)
+}
+
+# function to retrieve exons from TxDb if available
+get_exons <- function(spcs) {
+  gr <- tryCatch({
+    txdb <- supportedOrganisms()$TxDb[which(grepl(spcs, supportedOrganisms()$TxDb))]
+    library(txdb, character.only=T)
+    exons(eval(as.name(txdb)))
+    }, error=function(cond) return(GRanges()))
+  gr <- tryCatch(keepStandardChromosomes(gr, pruning.mode='coarse'),
+                 error=function(cond) {
+                   message(cond)
+                   return(gr)
+                   })
+  return(gr)
+}
+
+# function to clean up seqlevels, especially for spotted gar (lepOcu1), where some net.axt file come with a different style (e.g. AHA12345.1 instead of chrUn_AHA12345)
+tidy_seqlevels <- function(s) {
+  s <- gsub('MT', 'M', gsub('\\.1', '', gsub('AHA', 'chrUn_AHA', gsub('JH', 'chrUn_JH', s))))
+  s[!startsWith(s, 'chr')] <- paste0('chr', s[!startsWith(s, 'chr')])
+  return(s)
+}
+
 # order coordinates: if start coordinate is bigger than end coordinate, switch them.
 # returns a matrix with start coords in first row, end coords in second.
 order_coords <- function(s,e) {

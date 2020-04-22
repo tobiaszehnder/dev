@@ -55,4 +55,4 @@ $(ALIGNMENT_DIR)/$(S1).$(S2).maf: $(LASTDB_DIR)/$(S1).prj $(FASTA_DIR)/$(S2).fa
 $(OUTDIR)/%.net.axt.gz: $(ALIGNMENT_DIR)/%.net.axt
 	gzip -c $< > $@
 
-.SECONDARY: %.net.axt %.noClass.net %.all.pre.chain %.all.chain %.axtChain %.psl $(S1).$(S2).maf $(LASTDB_DIR)/%.prj %.sizes %.fa
+.PRECIOUS: %.net.axt %.noClass.net %.all.pre.chain %.all.chain %.axtChain %.maf $(LASTDB_DIR)/%.prj %.sizes %.fa %.psl

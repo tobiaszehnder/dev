@@ -17,8 +17,8 @@ def compute_energy(seq):
 
 def main():
     if len(sys.argv) < 5:
-        print 'Usage: compute_energy.py <fasta_file> <PCM_file> <factor_name> <record_ids (optional, comma-separated)>'
-        sys.exit(0)
+        print('Usage: compute_energy.py <fasta_file> <PCM_file> <factor_name> <record_ids (optional, comma-separated)>')
+        sys.exit(1)
         
     _, fasta_file, pcm_file, factor_name, = sys.argv[:4]
     if len(sys.argv) == 5:
@@ -26,7 +26,7 @@ def main():
     output_file = factor_name + '.feather'
 
     # compute background frequencies
-    print 'compute background frequencies'
+    print('compute background frequencies')
     bg_counts = np.zeros(4)
     with open(fasta_file, 'r') as f:
         for record in SeqIO.parse(f, "fasta"):
@@ -35,7 +35,7 @@ def main():
     bg_freqs
 
     # compute PWM
-    print 'compute PWM'
+    print('compute PWM')
     global pwm, pwm_RC
     pwm = get_PWM(pcm_file, bg_freqs=bg_freqs, pseudo_count=1)
     pwm_RC = pwm.loc[::-1,::-1] # reverse complement
@@ -45,7 +45,7 @@ def main():
     pwm['N'], pwm_RC['N'] = 0, 0
 
     # compute energies
-    print 'compute energies'
+    print('compute energies')
     l = pwm.shape[0]
     with open('stdout_%s.txt' %factor_name, 'w') as o:
         o.write('record.id\n')
@@ -71,14 +71,14 @@ def main():
     # write results to file using `feather` (compressed data frame readable in python and R)
     # only if energies were calculated for all sequences in fasta file, otherwise leave single feather files
     if 'record_ids' not in locals():
-        print 'write results to %s' %output_file
+        print('write results to %s' %output_file)
         files = [f for f in os.listdir('.') if f.startswith(factor_name) & f.endswith('feather') & (f != output_file)]
         df_list = [feather.read_dataframe(f) for f in files]
         df = pd.concat(df_list, axis=1)
         df = df[sorted(df.columns, key=int)]
         feather.write_dataframe(df, output_file) # write combined file
         _ = [os.remove(f) for f in files] # delete single files
-    print 'Done'
+    print('Done')
     
 if __name__ == '__main__':
     main()

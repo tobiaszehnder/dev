@@ -169,7 +169,7 @@ def get_shortest_path(ref, qry, ref_coords, species, ce, genome_size, verbose=Fa
     if shortest_path.get(current_species,(0,))[0] > current_score:
         continue # the current species was already reached by a faster path, ignore this path and go to the next species
     if verbose:
-      print(current_species) # remember: this might be a dead end that doesn't lead to the qry. not all printed species are part of the shortest path!
+      print(current_species) # remember: this is not necessarily going to the shortest path as it might be a dead end that doesn't lead to the qry. not all printed species are part of the shortest path!
     if current_species == qry:
       break # qry species reached, stop
     for nxt_species in species[species!=current_species]:
@@ -183,5 +183,5 @@ def get_shortest_path(ref, qry, ref_coords, species, ce, genome_size, verbose=Fa
       else:
         shortest_path[nxt_species] = (nxt_score, current_species, nxt_coords, current_anchors, nxt_anchors)
         heapq_max.heappush_max(orange, (nxt_score, nxt_species, nxt_coords))
-  shortest_path_to_qry = get_shortest_path_to_qry('mm10', shortest_path)
+  shortest_path_to_qry = get_shortest_path_to_qry(qry, shortest_path)
   return shortest_path_to_qry, shortest_path, orange

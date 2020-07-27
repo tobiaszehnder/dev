@@ -93,56 +93,33 @@ def longest_increasingly_sorted_subsequence(l, last_taken):
   return remove0
 
 # function to determine anchors of a given genomic coordinate
-# pwaln: if x lies within an alignment, return the coordinate itself as both anchors
 def get_anchors(df, chrom, x):
-  # df contains the pwalns
-  # if x lies within an alignment, return its exact position as both anchors
-  anchor_cols = ['ref_chrom','ref_coord','qry_chrom','qry_coord']
-  ov_aln = df.loc[(df.ref_chrom == chrom) & (df.ref_start < x) & (df.ref_end > x),].reset_index(drop=True) # x lies in an alignment. return x itself as both anchors
-  if ov_aln.shape[0] == 1:
-    x_relative_to_upstream = x - ov_aln.ref_start[0]
-    strand = '+' if ov_aln.qry_start[0] < ov_aln.qry_end[0] else '-'
-    if strand == '+':
-      vals = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]+x_relative_to_upstream]
-    else:
-      vals = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]-x_relative_to_upstream]
-    anchors = pd.DataFrame.from_dict({'upstream': vals, 'downstream': vals}, orient='index', columns=anchor_cols)
-  else:
-    # take orientation into account for the anchor definition. if the start > end, then the aln is to the '-' strand.
-    # in that scenario, if we are looking for the downstream anchor, we are interested in the smaller value, i.e. the end coordinate.
-    # remember that the REF coords are always on the '+' strand, so for slicing the df we don't need to check for the smaller/bigger value of start/end, it will always be start < end
-    # only select the first 100. the rest just takes longer to compute min / max and most likely will (and should) not be an anchor anyways. (and they are sorted by distance to x, so this is fine)
-    anchors_upstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_end < x),].ref_end - x).sort_values().index,['ref_chrom','ref_end','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
-    anchors_downstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_start > x),].ref_start - x).sort_values().index,['ref_chrom','ref_start','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
-    anchors_upstream.columns = anchors_downstream.columns = ['ref_chrom','ref_coord','qry_chrom','qry_start','qry_end']
-    # abort if less than 5 pwalns to each side (too sparse, not able to ensure collinearity)
-    if min(anchors_upstream.shape[0], anchors_downstream.shape[0]) < 5:
-      return pd.DataFrame(columns=anchor_cols)
-    # set the corresponding start or end coordinate that is closer to the projected coordinate (choosing the max/min assures correct handling of inverted alignments)
-    anchors_upstream['qry_coord'] = anchors_upstream.loc[:,('qry_start','qry_end')].apply(max, axis=1)
-    anchors_downstream['qry_coord'] = anchors_downstream.loc[:,('qry_start','qry_end')].apply(min, axis=1)
-    # MAJOR CHROMOSOME: retain anchors that point to the majority chromosome in top ten of both up- and downstream anchors
-    try:
-      major_chrom = pd.concat([anchors_upstream[:10], anchors_downstream[:10]]).qry_chrom.value_counts().idxmax()
-    except ValueError:
-      print(anchors_upstream.head(2))
-      print(anchors_upstream.shape)
-      print(anchors_downstream.head(2))
-      print(anchors_downstream.shape)
-    anchors_upstream = anchors_upstream[anchors_upstream.qry_chrom == major_chrom]
-    anchors_downstream = anchors_downstream[anchors_downstream.qry_chrom == major_chrom]
+  # df contains the CEs
+  anchors_upstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_center < x),].ref_center - x).sort_values().index,]
+  anchors_downstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_center > x),].ref_center - x).sort_values().index,]
+  # abort if less than 5 CNEs to each side (too sparse, not able to ensure collinearity)
+  if min(anchors_upstream.shape[0], anchors_downstream.shape[0]) < 5:
+    return pd.DataFrame(columns=['ref_chrom', 'ref_center', 'qry_chrom', 'qry_center'])
+  
+  # MAJOR CHROMOSOME: retain anchors that point to the majority chromosome in top ten of both up- and downstream anchors
+  try:
+    major_chrom = pd.concat([anchors_upstream[:10], anchors_downstream[:10]]).qry_chrom.value_counts().idxmax()
+  except ValueError:
+    print(anchors_upstream.head(2))
+    print(anchors_upstream.shape)
+    print(anchors_downstream.head(2))
+    print(anchors_downstream.shape)
+  anchors_upstream = anchors_upstream[anchors_upstream.qry_chrom == major_chrom]
+  anchors_downstream = anchors_downstream[anchors_downstream.qry_chrom == major_chrom]
 
-    # COLLINEARITY: remove pwalns pointing to outliers by getting the longest sorted subsequence of the top 10 of both up- and downstream anchors.
-    # top 10 produced many locally collinear pwalns that were still non-collinear outliers in the global view of the GRB. problem: increasing n leads to exponentially growing computing time
-    # e.g. collinearity check for top 9 takes < 1sec, top10 ~2-3 sec, top11 > 10sec, ...
-    # check resulting spanning range in ref vs qry
-    topn = 8
-    closest_anchors = pd.concat([anchors_upstream[:topn][::-1], anchors_downstream[:topn]]).reset_index(drop=True) # reset_index necessary, otherwise working with duplicate indices messing things up
-    idx_collinear = closest_anchors.index[np.intersect1d(closest_anchors.qry_coord.values, longest_sorted_subsequence(closest_anchors.qry_coord.values), return_indices=True)[1]] # this step takes 2 sec
-    closest_anchors = closest_anchors.loc[idx_collinear,]
-    anchor_upstream = closest_anchors.loc[abs(closest_anchors.loc[closest_anchors.ref_coord < x,].ref_coord - x).sort_values().index,].head(1).rename(index=lambda x:'upstream')
-    anchor_downstream = closest_anchors.loc[abs(closest_anchors.loc[closest_anchors.ref_coord > x,].ref_coord - x).sort_values().index,].head(1).rename(index=lambda x:'downstream')
-    anchors = pd.concat([anchor_upstream, anchor_downstream]).loc[:,['ref_chrom', 'ref_coord', 'qry_chrom', 'qry_coord']]
+  # COLLINEARITY: remove CEs pointing to outliers by getting the longest sorted subsequence of the top ten of both up- and downstream anchors
+  # check resulting spanning range in ref vs qry
+  closest_anchors = pd.concat([anchors_upstream[:10][::-1], anchors_downstream[:10]])
+  idx_collinear = closest_anchors.index[np.intersect1d(closest_anchors.qry_center.values, longest_sorted_subsequence(closest_anchors.qry_center.values), return_indices=True)[1]]
+  closest_anchors = closest_anchors.loc[idx_collinear,]
+  anchor_upstream = closest_anchors.loc[abs(closest_anchors.loc[closest_anchors.ref_center < x,].ref_center - x).sort_values().index,].head(1).rename(index=lambda x:'upstream')
+  anchor_downstream = closest_anchors.loc[abs(closest_anchors.loc[closest_anchors.ref_center > x,].ref_center - x).sort_values().index,].head(1).rename(index=lambda x:'downstream')
+  anchors = pd.concat([anchor_upstream, anchor_downstream])
   return anchors
 
 def projection_score(x, anchors, genome_size):
@@ -155,19 +132,19 @@ def projection_score(x, anchors, genome_size):
   return np.exp(-d / (genome_size / scaling_factor))
 
 ### the function takes the input from shortest_path[ref] and returns the values to put into orange
-def project_genomic_location(ref, qry, ref_coords, score, pwaln, genome_size):
+def project_genomic_location(ref, qry, ref_coords, score, ce, genome_size):
   ref_chrom = ref_coords.split(':')[0]
   ref_loc = int(ref_coords.split(':')[1])
-  anchors = get_anchors(pwaln[ref][qry], ref_chrom, ref_loc)
+  anchors = get_anchors(ce[ref][qry], ref_chrom, ref_loc)
   if anchors.shape[0] < 2: # if only one anchor is found because of border region, return 0 score and empty coordinate string
     return 0., '', (), ()
-  ref_anchors = tuple(anchors.apply(lambda x: x['ref_chrom'] + ':' + str(x['ref_coord']), axis=1))
-  qry_anchors = tuple(anchors.apply(lambda x: x['qry_chrom'] + ':' + str(x['qry_coord']), axis=1))
-  x_relative_to_upstream = (ref_loc - anchors.ref_coord['upstream']) / max(np.diff(anchors.ref_coord)[0], 1) # the max statement prevents potential zero division when anchors are the same (i.e. when the coord is on an alignment)
-  qry_loc = int(anchors.qry_coord['upstream'] + np.diff(anchors.qry_coord)[0] * x_relative_to_upstream)
+  ref_anchors = tuple(anchors.apply(lambda x: x['ref_chrom'] + ':' + str(x['ref_center']), axis=1))
+  qry_anchors = tuple(anchors.apply(lambda x: x['qry_chrom'] + ':' + str(x['qry_center']), axis=1))
+  x_relative_to_upstream = (ref_loc - anchors.ref_center['upstream']) / np.diff(anchors.ref_center)[0]
+  qry_loc = int(anchors.qry_center['upstream'] + np.diff(anchors.qry_center)[0] * x_relative_to_upstream)
   qry_chrom = anchors.qry_chrom['upstream']
   # ONLY USE DISTANCE TO CLOSE ANCHOR AT REF SPECIES, because at the qry species it should be roughly the same as it is a projection of the reference.
-  score *= projection_score(ref_loc, anchors.ref_coord, genome_size[ref]) # * projection_score(qry_loc, anchors.qry_coord, genome_size[qry]))
+  score *= projection_score(ref_loc, anchors.ref_center, genome_size[ref]) # * projection_score(qry_loc, anchors.qry_center, genome_size[qry]))
   qry_coords = qry_chrom + ':' + str(qry_loc)
   return score, qry_coords, ref_anchors, qry_anchors
 
@@ -179,7 +156,7 @@ def get_shortest_path_to_qry(x, shortest_path):
       l.append(x)
   return pd.DataFrame({k : shortest_path[k] for k in l[::-1]}, index=['score','from','coords','ref_anchors', 'qry_anchors']).T.loc[:,['from','score','coords','ref_anchors', 'qry_anchors']]
 
-def get_shortest_path(ref, qry, ref_coords, species, pwaln, genome_size, verbose=False):
+def get_shortest_path(ref, qry, ref_coords, species, ce, genome_size, verbose=False):
   if verbose:
     print('current species: (might be a dead end)')
   shortest_path = {}
@@ -192,16 +169,16 @@ def get_shortest_path(ref, qry, ref_coords, species, pwaln, genome_size, verbose
     if shortest_path.get(current_species,(0,))[0] > current_score:
         continue # the current species was already reached by a faster path, ignore this path and go to the next species
     if verbose:
-      print(current_species, current_score) # remember: this is not necessarily going to the shortest path as it might be a dead end that doesn't lead to the qry. not all printed species are part of the shortest path!
+      print(current_species) # remember: this is not necessarily going to the shortest path as it might be a dead end that doesn't lead to the qry. not all printed species are part of the shortest path!
     if current_species == qry:
       break # qry species reached, stop
     for nxt_species in species[species!=current_species]:
       nxt_best_score = shortest_path.get(nxt_species,(0,))[0] # current score entry for nxt_species in shortest_path
-      if current_score <= nxt_best_score:
+      if current_score < nxt_best_score:
         continue # if the score to current_species was lower than any previous path to nxt_species, nxt_species won't be reached faster through current_species. ignore and move on to the next species
       else:
-        nxt_score, nxt_coords, current_anchors, nxt_anchors = project_genomic_location(current_species, nxt_species, current_coords, current_score, pwaln, genome_size)
-      if nxt_score <= nxt_best_score:
+        nxt_score, nxt_coords, current_anchors, nxt_anchors = project_genomic_location(current_species, nxt_species, current_coords, current_score, ce, genome_size)
+      if nxt_score < nxt_best_score:
         continue # only save the current path to nxt_species if it was indeed faster than any previous path to it
       else:
         shortest_path[nxt_species] = (nxt_score, current_species, nxt_coords, current_anchors, nxt_anchors)

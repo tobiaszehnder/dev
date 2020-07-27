@@ -99,7 +99,48 @@ def get_anchors(df, chrom, x):
   # if x lies within an alignment, return its exact position as both anchors
   anchor_cols = ['ref_chrom','ref_coord','qry_chrom','qry_coord']
   ov_aln = df.loc[(df.ref_chrom == chrom) & (df.ref_start < x) & (df.ref_end > x),].reset_index(drop=True) # x lies in an alignment. return x itself as both anchors
-  if ov_aln.shape[0] == 1:
+  ov_aln['qry_coord'] = (ov_aln.qry_start + ov_aln.qry_end) / 2 # add the center of the alignment as the `qry_coord` column in order to check for collinearity with up- and downstream anchors later
+
+  # first define anchors upstream downstream and ov_aln, then do major_chrom / collinearity test, then do if/else ov_aln.shape[0] == 1
+  # take orientation into account for the anchor definition. if the start > end, then the aln is to the '-' strand.
+  # in that scenario, if we are looking for the downstream anchor, we are interested in the smaller value, i.e. the end coordinate.
+  # remember that the REF coords are always on the '+' strand, so for slicing the df we don't need to check for the smaller/bigger value of start/end, it will always be start < end
+  # only select the first 100. the rest just takes longer to compute min / max and most likely will (and should) not be an anchor anyways. (and they are sorted by distance to x, so this is fine)
+  anchors_upstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_end < x),].ref_end - x).sort_values().index,['ref_chrom','ref_end','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
+  anchors_downstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_start > x),].ref_start - x).sort_values().index,['ref_chrom','ref_start','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
+  anchors_upstream.columns = anchors_downstream.columns = ['ref_chrom','ref_coord','qry_chrom','qry_start','qry_end']
+  # abort if less than 5 pwalns to each side (too sparse, not able to ensure collinearity)
+  if min(anchors_upstream.shape[0], anchors_downstream.shape[0]) < 5:
+    return pd.DataFrame(columns=anchor_cols)
+  # set the corresponding start or end coordinate that is closer to the projected coordinate (choosing the max/min assures correct handling of inverted alignments)
+  anchors_upstream['qry_coord'] = anchors_upstream.loc[:,('qry_start','qry_end')].apply(max, axis=1)
+  anchors_downstream['qry_coord'] = anchors_downstream.loc[:,('qry_start','qry_end')].apply(min, axis=1)
+  # MAJOR CHROMOSOME: retain anchors that point to the majority chromosome in top ten of both up- and downstream anchors
+  try:
+    major_chrom = pd.concat([anchors_upstream[:10], ov_aln, anchors_downstream[:10]], axis=0, sort=False).qry_chrom.value_counts().idxmax()
+  except ValueError:
+    print(anchors_upstream.head(2))
+    print(anchors_upstream.shape)
+    print(anchors_downstream.head(2))
+    print(anchors_downstream.shape)
+  ov_aln[ov_aln.qry_chrom == major_chrom]
+  anchors_upstream = anchors_upstream[anchors_upstream.qry_chrom == major_chrom]
+  anchors_downstream = anchors_downstream[anchors_downstream.qry_chrom == major_chrom]
+  
+  # COLLINEARITY: remove pwalns pointing to outliers by getting the longest sorted subsequence of the top 10 of both up- and downstream anchors.
+  # top 10 produced many locally collinear pwalns that were still non-collinear outliers in the global view of the GRB (is that really true?). problem: increasing n leads to exponentially growing computing time
+  # e.g. collinearity check for top 9 takes < 1sec, top10 ~2-3 sec, top11 > 10sec, ...
+  # check resulting spanning range in ref vs qry
+  topn = 8
+  closest_anchors = pd.concat([anchors_upstream[:topn][::-1], ov_aln, anchors_downstream[:topn]], axis=0, sort=False).reset_index(drop=True) # reset_index necessary, otherwise working with duplicate indices messing things up
+  idx_collinear = closest_anchors.index[np.intersect1d(closest_anchors.qry_coord.values, longest_sorted_subsequence(closest_anchors.qry_coord.values.astype(int)), return_indices=True)[1]] # this step takes 2 sec
+  closest_anchors = closest_anchors.loc[idx_collinear,].dropna(axis=1, how='all') # drop columns if it only contains NaNs (see explanation below)
+  # if ov_aln is still present in closest_anchors (not filtered out by major_chrom / collinearity test), take it and return it. otherwise identify up- and downstream anchors.
+  # this is tested by checking wether the column `ref_start` is still present (it was only present in the row from ov_aln, and NaN otherwise.)
+  # If the ov_aln row was removed during the collinearity test, the final `dropna()` will get rid of the ref_start column. If there never was an ov_aln, the column will not exist either.
+  if ('ref_start' in closest_anchors.columns):
+    idx_ov_aln = np.where(~np.isnan(closest_anchors.ref_start))[0]
+    ov_aln = closest_anchors.iloc[idx_ov_aln].reset_index(drop=True)
     x_relative_to_upstream = x - ov_aln.ref_start[0]
     strand = '+' if ov_aln.qry_start[0] < ov_aln.qry_end[0] else '-'
     if strand == '+':
@@ -108,41 +149,9 @@ def get_anchors(df, chrom, x):
       vals = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]-x_relative_to_upstream]
     anchors = pd.DataFrame.from_dict({'upstream': vals, 'downstream': vals}, orient='index', columns=anchor_cols)
   else:
-    # take orientation into account for the anchor definition. if the start > end, then the aln is to the '-' strand.
-    # in that scenario, if we are looking for the downstream anchor, we are interested in the smaller value, i.e. the end coordinate.
-    # remember that the REF coords are always on the '+' strand, so for slicing the df we don't need to check for the smaller/bigger value of start/end, it will always be start < end
-    # only select the first 100. the rest just takes longer to compute min / max and most likely will (and should) not be an anchor anyways. (and they are sorted by distance to x, so this is fine)
-    anchors_upstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_end < x),].ref_end - x).sort_values().index,['ref_chrom','ref_end','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
-    anchors_downstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_start > x),].ref_start - x).sort_values().index,['ref_chrom','ref_start','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
-    anchors_upstream.columns = anchors_downstream.columns = ['ref_chrom','ref_coord','qry_chrom','qry_start','qry_end']
-    # abort if less than 5 pwalns to each side (too sparse, not able to ensure collinearity)
-    if min(anchors_upstream.shape[0], anchors_downstream.shape[0]) < 5:
-      return pd.DataFrame(columns=anchor_cols)
-    # set the corresponding start or end coordinate that is closer to the projected coordinate (choosing the max/min assures correct handling of inverted alignments)
-    anchors_upstream['qry_coord'] = anchors_upstream.loc[:,('qry_start','qry_end')].apply(max, axis=1)
-    anchors_downstream['qry_coord'] = anchors_downstream.loc[:,('qry_start','qry_end')].apply(min, axis=1)
-    # MAJOR CHROMOSOME: retain anchors that point to the majority chromosome in top ten of both up- and downstream anchors
-    try:
-      major_chrom = pd.concat([anchors_upstream[:10], anchors_downstream[:10]]).qry_chrom.value_counts().idxmax()
-    except ValueError:
-      print(anchors_upstream.head(2))
-      print(anchors_upstream.shape)
-      print(anchors_downstream.head(2))
-      print(anchors_downstream.shape)
-    anchors_upstream = anchors_upstream[anchors_upstream.qry_chrom == major_chrom]
-    anchors_downstream = anchors_downstream[anchors_downstream.qry_chrom == major_chrom]
-
-    # COLLINEARITY: remove pwalns pointing to outliers by getting the longest sorted subsequence of the top 10 of both up- and downstream anchors.
-    # top 10 produced many locally collinear pwalns that were still non-collinear outliers in the global view of the GRB. problem: increasing n leads to exponentially growing computing time
-    # e.g. collinearity check for top 9 takes < 1sec, top10 ~2-3 sec, top11 > 10sec, ...
-    # check resulting spanning range in ref vs qry
-    topn = 8
-    closest_anchors = pd.concat([anchors_upstream[:topn][::-1], anchors_downstream[:topn]]).reset_index(drop=True) # reset_index necessary, otherwise working with duplicate indices messing things up
-    idx_collinear = closest_anchors.index[np.intersect1d(closest_anchors.qry_coord.values, longest_sorted_subsequence(closest_anchors.qry_coord.values), return_indices=True)[1]] # this step takes 2 sec
-    closest_anchors = closest_anchors.loc[idx_collinear,]
     anchor_upstream = closest_anchors.loc[abs(closest_anchors.loc[closest_anchors.ref_coord < x,].ref_coord - x).sort_values().index,].head(1).rename(index=lambda x:'upstream')
     anchor_downstream = closest_anchors.loc[abs(closest_anchors.loc[closest_anchors.ref_coord > x,].ref_coord - x).sort_values().index,].head(1).rename(index=lambda x:'downstream')
-    anchors = pd.concat([anchor_upstream, anchor_downstream]).loc[:,['ref_chrom', 'ref_coord', 'qry_chrom', 'qry_coord']]
+    anchors = pd.concat([anchor_upstream, anchor_downstream]).loc[:,anchor_cols]
   return anchors
 
 def projection_score(x, anchors, genome_size):

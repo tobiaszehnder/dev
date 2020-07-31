@@ -12,7 +12,7 @@ def project(coord, ref, qry, species, pwaln, genome_size):
      # a) collinear (get_anchors() checks that) and
      # b) closest to the projected location among the closest anchors from all species
      proj_chrom, proj_loc = shortest_path_to_qry.loc[qry,'coords'].split(':')
-     qry_anchors_allspecies = pd.concat([get_anchors(ce[qry][sp], proj_chrom, int(proj_loc)).assign(sp=sp) for sp in ce[qry]], axis=0).rename_axis('direction').reset_index()
+     qry_anchors_allspecies = pd.concat([get_anchors(pwaln[qry][sp], proj_chrom, int(proj_loc)).assign(sp=sp) for sp in pwaln[qry]], axis=0).rename_axis('direction').reset_index()
      idx_closest_upstream = qry_anchors_allspecies.loc[qry_anchors_allspecies.direction=='upstream','ref_coord'].idxmax()
      idx_closest_downstream = qry_anchors_allspecies.loc[qry_anchors_allspecies.direction=='downstream','ref_coord'].idxmin()
      qry_anchors_narrow = qry_anchors_allspecies.loc[[idx_closest_upstream, idx_closest_downstream],:].set_index('direction')
@@ -20,7 +20,8 @@ def project(coord, ref, qry, species, pwaln, genome_size):
      columns = pd.MultiIndex.from_tuples([('coords','ref'),('coords','direct'),('coords','dijkstra'),('score','direct'),('score','dijkstra'),
                                           ('ref_anchors','direct'),('ref_anchors','dijkstra'),('qry_anchors','direct'),('qry_anchors','dijkstra'),
                                           ('ref_anchorspan','direct'),('ref_anchorspan','dijkstra'),('qry_anchorspan','direct'),('qry_anchorspan','dijkstra'),
-                                          ('bridging_species','dijkstra')]) 
+                                          ('bridging_species','dijkstra'),
+                                          ('narrow_anchors','coords'),('narrow_anchors','span'),('narrow_anchors','species')])
      # Note: shortest_path_to_qry['ref_anchors'][1] gives the second species in the path with the anchors from the ref species before
      values = np.array([coord, direct_projection[1], shortest_path_to_qry.loc[qry,'coords'],
                         direct_projection[0], shortest_path_to_qry.loc[qry,'score'],
@@ -28,7 +29,8 @@ def project(coord, ref, qry, species, pwaln, genome_size):
                         direct_projection[3], shortest_path_to_qry['qry_anchors'][-1], # qry anchors of last species in path
                         abs(np.diff([int(x.split(':')[1]) for x in direct_projection[2]])[0]), abs(np.diff([int(x.split(':')[1]) for x in shortest_path_to_qry['ref_anchors'][1]])[0]), # ref anchors width
                         abs(np.diff([int(x.split(':')[1]) for x in direct_projection[3]])[0]), abs(np.diff([int(x.split(':')[1]) for x in shortest_path_to_qry['qry_anchors'][-1]])[0]), # qry anchors width
-                        ','.join(shortest_path_to_qry.index.values[1:-1])])
+                        ','.join(shortest_path_to_qry.index.values[1:-1]),
+                        tuple(qry_anchors_narrow[['ref_chrom','ref_coord']].astype(str).agg(':'.join, axis=1)), np.diff(qry_anchors_narrow.ref_coord.values)[0], tuple(qry_anchors_narrow.sp)])
      df = pd.DataFrame(values, index=columns).T
      return df
 

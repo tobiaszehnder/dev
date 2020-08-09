@@ -1,13 +1,13 @@
 #! /bin/bash
 
-# This script takes a bed file of point coordinates and projects them from a reference to a query.
+# This script takes a bed file of point coordinates and propagates their anchors such that the anchor span in the target species is minimized.
 # Make sure path_pwaln_pkl contains the desired species set.
 
-[[ $# != 5 ]] && { echo "Usage: ./project_regions.sh coords.bed reference_species query_species path_pwaln_pkl nthreads"; exit 0; }
+[[ $# != 5 ]] && { echo "Usage: ./propagate_anchors_wrapper.sh coords.bed reference_species target_species path_pwaln_pkl nthreads"; exit 0; }
 
 bed=$1
-ref=$2
-qry=$3
+reference=$2
+target=$3
 path_pwaln_pkl=$4
 nthreads=$5
 
@@ -16,9 +16,9 @@ nthreads=$5
 
 mkdir -p tmp
 l=$(< $bed wc -l)
-ERT=$(printf "%.0f" "$(echo "3.5*$l/$nthreads" | bc)") # based on a estimated average runtime of 3.5 min per job
-echo "Estimated runtime: $((ERT/60))h $(bc <<< $ERT%60)m"
-sem_id="project_coordinates_$(hostname)_${RANDOM}"
+ERT=$(printf "%.0f" "$(echo "30*$l/$nthreads" | bc -l)") # based on a estimated average runtime of 30 sec per job
+echo "Estimated runtime: $((ERT/3600))h $(bc <<< $((ERT/60)))m $(bc <<< $ERT%60)s"
+sem_id="propagate_anchors_$(hostname)_${RANDOM}"
 starttime=$(date -u '+%s')
 
 # loop through bed-file
@@ -27,7 +27,7 @@ while IFS='' read -r LINE || [ -n "${LINE}" ]; do
 	id=${bed_row[3]}
 	coord=${bed_row[0]}:$(($((${bed_row[1]}+${bed_row[2]}))/2)) # center of region
 	echo $id $coord
-	sem --id $sem_id -j${nthreads} project_dijkstra.py $ref $qry $coord $id $path_pwaln_pkl # sem is an alias for parallel --semaphore. A counting semaphore will allow a given number of jobs to be started in the background.
+	sem --id $sem_id -j${nthreads} --timeout 100 propagate_anchors.py $reference $target $coord $id $path_pwaln_pkl tmp
 done < $bed
 
 sem --id $sem_id --wait # wait until all sem jobs are completed before moving on
@@ -36,9 +36,9 @@ difftime=$(date -u --date @$((endtime-starttime)) '+%-Hh %-Mm %-Ss')
 echo "Effective runtime: ${difftime}"
 
 # concatenate tmp output files to one file, delete tmp files
-outfile=${bed/bed/proj}
+outfile=${bed/bed/aprop}
 ids=($(cut -f4 $bed))
-head -3 "tmp/${ids[0]}.proj.tmp" > $outfile
-for id in ${ids[@]:1}; do eval tail -n 1 -q "tmp/${id}.proj.tmp" >> $outfile; done
+cat "tmp/${ids[0]}.aprop" > $outfile
+for id in ${ids[@]:1}; do eval tail -n+4 -q "tmp/${id}.aprop" >> $outfile; done
 rm -r tmp
 echo "Done"

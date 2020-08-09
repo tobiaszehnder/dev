@@ -1,5 +1,7 @@
 #! /usr/bin/make -f
 
+# usage: ./compute_pairwise_alignment.sh S1=species1 S2=species2
+
 DATA_DIR = /project/wig/tobias/reg_evo/data
 ASSEMBLY_DIR = $(DATA_DIR)/assembly
 LASTDB_DIR = $(DATA_DIR)/alignment/lastdb
@@ -17,10 +19,11 @@ all: $(TARGETS)
 ## -----------------------------------------------------------------------------
 
 %.2bit:
-ifeq ("$(wildcard $@)", "")
-	@echo "Error: $@ does not exist"
-	false
-endif
+	get_assembly.sh $(notdir $(patsubst %.2bit,%,$@))
+# ifeq ("$(wildcard $@)", "")
+# 	@echo "Error: $@ does not exist"
+# 	false
+# endif
 
 %.sizes: %.2bit
 	get_chromosome_sizes.R $<

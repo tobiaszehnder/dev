@@ -3,7 +3,7 @@
 ### THIS SCRIPT PROCESSES SINGLE-END READS (use bwa mem for paired-end) ###
 
 ###
-# Usage: ./process_data_3SRRs.sh sample=H3KXyZ_stageXY srr='SRR111111 SRR222222 ...'
+# Usage: ./process_fastq_singleend.sh sample=H3KXyZ_stageXY srr='SRR111111 SRR222222 ...'
 ###
 
 ROOT=/project/wig/tobias/reg_evo/data
@@ -46,11 +46,13 @@ $(BAMDIR)/$(SAMPLE).merged.bam: $(addprefix $(BAMDIR)/, $(addsuffix .sort.rmdup.
 
 # compute alignment
 %.sai: %.fastq
-	bwa aln -t 64 -k 2 -n 3 -0 $(GENOME_FASTA) $^ > $@ # bwa aln -t 64 -k 2 -n 3 $(patsubst %.fa,%,$(GENOME_FASTA)) $^ > $@
+	# bwa aln -t 64 -k 2 -n 3 -0 $(GENOME_FASTA) $^ > $@
+	bwa aln -t 64 -k 2 -n 3 $(patsubst %.fa,%,$(GENOME_FASTA)) $^ > $@
 
 # convert to sam
 %.full.sam: %.sai %.fastq
-	bwa samse $(GENOME_FASTA) $^ > $@ # bwa samse $(patsubst %.fa,%,$(GENOME_FASTA)) $^ > $@
+	# bwa samse $(GENOME_FASTA) $^ > $@
+	bwa samse $(patsubst %.fa,%,$(GENOME_FASTA)) $^ > $@
 
 # filter reads (minimum quality of 30) and convert to bam
 %.full.bam: %.full.sam

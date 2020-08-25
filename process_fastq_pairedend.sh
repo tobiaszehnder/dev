@@ -2,8 +2,13 @@
 
 ### THIS SCRIPT PROCESSES PAIRED-END READS (use bwa aln -0 for single-end only) ###
 
+### ONLY FOR ONE BIOLOGICAL REPLICATE ###
+
+### This script only works for one biological replicate as bwa mem takes the two fastqs for the paired ends and puts them into a single .full.sam file.
+### Use it for one biological replicate at a time and manually merge them later.
+
 ###
-# Usage: ./process_data_3SRRs.sh sample=H3KXyZ_stageXY srr='SRR111111 SRR222222 ...'
+# Usage: ./process_fastq_pairedend.sh sample=H3KXyZ_stageXY_repN srr='SRR111111_A SRR111111_B'
 ###
 
 ROOT=/project/wig/tobias/reg_evo/data
@@ -16,20 +21,20 @@ BAMDIR=$(DATA_DIR)/bam
 BWDIR=$(DATA_DIR)/bigwig
 SAMPLE=$(sample)
 
-TARGETS = $(BWDIR)/$(SAMPLE).cpm.200bpBinsMeanOverlap.bw $(BAMDIR)/$(SAMPLE).merged.bam.bai
+TARGETS = $(BAMDIR)/$(SAMPLE).sort.rmdup.bam.bai
 
 # ------------------------------------------------------------------------------
 
 all: $(TARGETS)
 
 
-# track files
-# ------------------------------------------------------------------------------
-$(BWDIR)/$(SAMPLE).cpm.200bpBinsMeanOverlap.bw: $(BAMDIR)/$(SAMPLE).merged.bam
-	bamToBigWig -v --normalize-track=cpm --binning-method "mean overlap" --bin-size 200 $^ $@
+# # track files
+# # ------------------------------------------------------------------------------
+# $(BWDIR)/$(SAMPLE).cpm.200bpBinsMeanOverlap.bw: $(BAMDIR)/$(SAMPLE).merged.bam
+# 	bamToBigWig -v --normalize-track=cpm --binning-method "mean overlap" --bin-size 200 $^ $@
 
-$(BAMDIR)/$(SAMPLE).merged.bam: $(addprefix $(BAMDIR)/, $(addsuffix .sort.rmdup.bam, $(srr)))
-	samtools merge $@ $^
+# $(BAMDIR)/$(SAMPLE).merged.bam: $(addprefix $(BAMDIR)/, $(addsuffix .sort.rmdup.bam, $(srr)))
+# 	samtools merge $@ $^
 
 # keep intermediate files and delete files whenever an error occurs
 # ------------------------------------------------------------------------------
@@ -45,7 +50,7 @@ $(BAMDIR)/$(SAMPLE).merged.bam: $(addprefix $(BAMDIR)/, $(addsuffix .sort.rmdup.
 	fastq-dump -O $(dir $@) $(notdir $(basename $@))
 
 # compute alignment
-%.full.sam: %.fastq
+$(BAMDIR)/$(SAMPLE).full.sam: $(addprefix $(BAMDIR)/, $(addsuffix .fastq, $(srr)))
 	bwa mem -t 64 $(GENOME_FASTA) $^ > $@
 
 # filter reads (minimum quality of 30) and convert to bam

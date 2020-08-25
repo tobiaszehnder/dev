@@ -46,7 +46,9 @@ while IFS='' read -r LINE || [ -n "${LINE}" ]; do
 	echo "Effective runtime: ${difftime}"
 
 	# concatenate tmp output files to one file, delete tmp files
-	head -3 "tmp/${grb_name}_0.aprop" > $outfile
+	# head -3 "tmp/${grb_name}_0.aprop" > $outfile
+	files=(tmp/${grb_name}*aprop)
+	head -3 ${files[0]} > $outfile
 	for file in `ls tmp/${grb_name}_*.aprop | sort -V`; do eval tail -n+4 -q $file >> $outfile; done 
 	# rm -r tmp
 	echo "Done"

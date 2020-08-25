@@ -68,73 +68,6 @@ def read_cne(ref, qry, grb):
   df = df.loc[(df.chrom == grb.chrom) & (df.center > grb.start) & (df.center < grb.end), ('chrom', 'center')]
   df['qry'] = qry
   return(df)
-
-# def longest_sorted_subsequence(l):
-#   res = [longest_increasingly_sorted_subsequence(l, -np.inf), [y*-1 for y in longest_increasingly_sorted_subsequence([x*-1 for x in l], -np.inf)]]
-#   return np.array(res[np.argmax([len(x) for x in res])])
-
-# def longest_increasingly_sorted_subsequence(l, last_taken):
-#   # returns the longest sorted subsequence of any given list of numbers
-#   l = list(l)
-#   if not len(l):
-#     # No more items in the list.
-#     return []
-
-#   # remove l[0]
-#   remove0 = longest_increasingly_sorted_subsequence(l[1:], last_taken)
-
-#   if last_taken < l[0]:
-#     # keep l[0]
-#     keep0 = longest_increasingly_sorted_subsequence(l[1:], l[0])
-#     keep0 = [l[0]] + keep0
-#     if len(keep0) > len(remove0):
-#       return keep0
-
-#   return remove0
-
-# def longest_increasingly_sorted_subsequence(l, index, last_taken):
-#   # by Sämy
-#   # Returns the longest sorted subsequence of the given list of numbers l,
-#   # starting from the given index.
-#   # All items in the result are greater than last_taken.
-#   # The returned list is in opposite order (the last value is first in the list).
-#   if index == len(l):
-#     # No more items in the list.
-#     return []
-
-#   # ignore l[index]
-#   removeI = longest_increasingly_sorted_subsequence(l, index+1, last_taken)
-
-#   valueI = l[index]
-#   if last_taken < valueI:
-#     # use l[index]
-#     keepI = longest_increasingly_sorted_subsequence(l, index+1, valueI)
-#     if len(keepI)+1 > len(removeI):
-#       keepI.append(valueI)
-#       return keepI
-
-#   return removeI
-
-# def longest_sorted_subsequence(l):
-#   # by Sämy
-#   # Returns the longest sorted subsequence of any given list of numbers from
-#   # either left-to-right or right-to-left.
-
-#   l = list(l)
-#   ltr = longest_increasingly_sorted_subsequence(l, 0, -np.inf)
-#   rtl = longest_increasingly_sorted_subsequence(list(reversed(l)), 0, -np.inf)
-
-#   if len(ltr) > len(rtl):
-#       # The result in ltr is currently in opposite order.
-#       ltr.reverse()
-#       res = ltr
-#   else:
-#       # The result in rtl is in opposite order. However, we reversed l to get
-#       # rtl, so this is the correct order of the result.
-#       res = rtl
-#   return np.array(res)
-
-
   
 def longest_sorted_subsequence(seq):
   # wrapper for longest_increasingly_sorted_subsequence(), applying it for increasing and decreasing and returning the longer resulting subsequence.
@@ -201,11 +134,14 @@ def longest_increasingly_sorted_subsequence(seq):
 
 # function to determine anchors of a given genomic coordinate
 # pwaln: if x lies within an alignment, return the coordinate itself as both anchors
-def get_anchors(df, chrom, x):
-  # df contains the pwalns
-  # if x lies within an alignment, return its exact position as both anchors
-  anchor_cols = ['ref_chrom','ref_coord','qry_chrom','qry_coord','qry_strand']
+def get_anchors(df, chrom, x, return_top_n=False): # return_top_n: do not just return the two closest anchors, but the list of topn anchors (used in get_anchors_between_boundaries())
+  ### NEW: overlapping alignments are no longer interpolated to the exact location on the alignment. instead, the ends of the alignments are taken as flanking anchors.
+  ### this is because the alignments may have different lengths in ref and qry due to gaps and we can not be sure that the nth bp on the ref aligns with the same nth bp on the qry.
+  
+  # if x lies within an alignment, return its up- and downstream ends as anchors
+  anchor_cols = ['ref_chrom','ref_start','ref_end','ref_coord','qry_chrom','qry_start','qry_end','qry_coord','qry_strand']
   ov_aln = df.loc[(df.ref_chrom == chrom) & (df.ref_start < x) & (df.ref_end > x),].reset_index(drop=True) # x lies in an alignment. return x itself as both anchors
+  ov_aln['ref_coord'] = (ov_aln.ref_start + ov_aln.ref_end) / 2 # add the center of the alignment as the `ref_coord` column in order to check for collinearity with up- and downstream anchors later
   ov_aln['qry_coord'] = (ov_aln.qry_start + ov_aln.qry_end) / 2 # add the center of the alignment as the `qry_coord` column in order to check for collinearity with up- and downstream anchors later
   
   # first define anchors upstream downstream and ov_aln, then do major_chrom / collinearity test, then either return overlapping anchor or closest anchors.
@@ -215,9 +151,11 @@ def get_anchors(df, chrom, x):
   # but if the qry is inverted, the start coordinate will be greater than the end and so we'll save that info in the qry_strand variable later.
   # remember that the REF coords are always on the '+' strand, so for slicing the df we don't need to check for the smaller/bigger value of start/end, it will always be start < end
   # only select the first 100. the rest just takes longer to compute min / max and most likely will (and should) not be an anchor anyways. (and they are sorted by distance to x, so this is fine)
-  anchors_upstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_end < x),].ref_end - x).sort_values().index,['ref_chrom','ref_end','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
-  anchors_downstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_start > x),].ref_start - x).sort_values().index,['ref_chrom','ref_start','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
-  anchors_upstream.columns = anchors_downstream.columns = ['ref_chrom','ref_coord','qry_chrom','qry_start','qry_end']
+  anchors_upstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_end < x),].ref_end - x).sort_values().index,['ref_chrom','ref_start','ref_end','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
+  anchors_upstream.insert(3, 'ref_coord', anchors_upstream.ref_end)
+  anchors_downstream = df.loc[abs(df.loc[(df.ref_chrom == chrom) & (df.ref_start > x),].ref_start - x).sort_values().index,['ref_chrom','ref_start','ref_end','qry_chrom','qry_start','qry_end']].iloc[:100,:].reset_index(drop=True) # keeping the index makes creating a new column later very slow
+  anchors_downstream.insert(3, 'ref_coord', anchors_downstream.ref_start)
+#   anchors_upstream.columns = anchors_downstream.columns = ['ref_chrom','ref_coord','qry_chrom','qry_start','qry_end']
   # abort if less than 5 pwalns to each side (too sparse, not able to ensure collinearity)
   if min(anchors_upstream.shape[0], anchors_downstream.shape[0]) < 5:
     return pd.DataFrame(columns=anchor_cols)
@@ -227,9 +165,15 @@ def get_anchors(df, chrom, x):
   # new: choosing the SAME LABELED COORDINATE as the reference, i.e. START in case of downsteam and END in case of upstream.
   anchors_upstream['qry_coord'] = anchors_upstream.qry_end
   anchors_downstream['qry_coord'] = anchors_downstream.qry_start
-  # MAJOR CHROMOSOME: retain anchors that point to the majority chromosome in top ten of both up- and downstream anchors
+  
+  # top 10 produced many locally collinear pwalns that were still non-collinear outliers in the global view of the GRB (is that really true?).
+  # also, top 10 still often has local cluster of outliers and is depleted in the true major_chrom pwalns, leading to the 'wrong' major_chrom.
+  # since the updated collinearity test is very efficient, take top 20 to each direction.
+  topn = 20
+  
+  # MAJOR CHROMOSOME: retain anchors that point to the majority chromosome in top twenty of both up- and downstream anchors
   try:
-    major_chrom = pd.concat([anchors_upstream[:10], ov_aln, anchors_downstream[:10]], axis=0, sort=False).qry_chrom.value_counts().idxmax()
+    major_chrom = pd.concat([anchors_upstream[:topn], ov_aln, anchors_downstream[:topn]], axis=0, sort=False).qry_chrom.value_counts().idxmax()
   except ValueError:
     print(anchors_upstream.head(2))
     print(anchors_upstream.shape)
@@ -239,29 +183,37 @@ def get_anchors(df, chrom, x):
   anchors_upstream = anchors_upstream[anchors_upstream.qry_chrom == major_chrom]
   anchors_downstream = anchors_downstream[anchors_downstream.qry_chrom == major_chrom]
   
-  # COLLINEARITY: remove pwalns pointing to outliers by getting the longest sorted subsequence of the top 10 of both up- and downstream anchors.
-  # top 10 produced many locally collinear pwalns that were still non-collinear outliers in the global view of the GRB (is that really true?). problem: increasing n leads to exponentially growing computing time
-  # e.g. collinearity check for top 9 takes < 1sec, top10 ~2-3 sec, top11 > 10sec, ...
-  # check resulting spanning range in ref vs qry
-  topn = 10
+  # COLLINEARITY: remove pwalns pointing to outliers by getting the longest sorted subsequence of the top n of both up- and downstream anchors.
   closest_anchors = pd.concat([anchors_upstream[:topn][::-1], ov_aln, anchors_downstream[:topn]], axis=0, sort=False).reset_index(drop=True) # reset_index necessary, otherwise working with duplicate indices messing things up
   idx_collinear = closest_anchors.index[np.intersect1d(closest_anchors.qry_coord.values, longest_sorted_subsequence(closest_anchors.qry_coord.values.astype(int)), return_indices=True)[1]] # this step takes 2 sec
   closest_anchors = closest_anchors.loc[idx_collinear,].dropna(axis=1, how='all') # drop columns if it only contains NaNs (see explanation below)
-  # if ov_aln is still present in closest_anchors (not filtered out by major_chrom / collinearity test), take it and return it. otherwise identify up- and downstream anchors.
-  # this is tested by checking wether the column `ref_start` is still present (it was only present in the row from ov_aln, and NaN otherwise.)
-  # If the ov_aln row was removed during the collinearity test, the final `dropna()` will get rid of the ref_start column. If there never was an ov_aln, the column will not exist either.
-  if ('ref_start' in closest_anchors.columns):
-    idx_ov_aln = np.where(~np.isnan(closest_anchors.ref_start))[0]
-    ov_aln = closest_anchors.iloc[idx_ov_aln].reset_index(drop=True)
+  
+  # return the top anchors if the flag was passed
+  if return_top_n:
+    return closest_anchors[['ref_chrom','ref_start','ref_end','qry_chrom','qry_start','qry_end']]
+  
+  # check if the original ov_aln is still present (or ever was) in the filtered closest_anchors (that include a potential ov_aln)
+  ov_aln = closest_anchors.loc[(closest_anchors.ref_start < x) & (closest_anchors.ref_end > x),].reset_index(drop=True)
+  if ov_aln.shape[0] == 1:
     x_relative_to_upstream = x - ov_aln.ref_start[0]
     strand = '+' if ov_aln.qry_start[0] < ov_aln.qry_end[0] else '-'
-    if strand == '+':
-      vals_up = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]+x_relative_to_upstream, strand]
-      vals_down = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]+x_relative_to_upstream, strand] # add an offset of 1 between up- and downstream anchor
-    else:
-      vals_up = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]-x_relative_to_upstream, strand]
-      vals_down = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]-x_relative_to_upstream, strand] # add an offset of 1 between up- and downstream anchor
-    anchors = pd.DataFrame.from_dict({'upstream': vals_up, 'downstream': vals_down}, orient='index', columns=anchor_cols)
+    vals_up = ov_aln.copy().rename(index={0:'upstream'})
+    vals_down = ov_aln.copy().rename(index={0:'downstream'})
+    vals_up.ref_coord = vals_up.ref_start # here it is the start coord for same-oriented because we are looking at an overlapping alignment
+    vals_down.ref_coord = vals_down.ref_end
+    # for the qry_coord: always take qry_start for upstream and qry_end for downstream. why? if strand=='-', qry_start > qry_end and thus we don't need to check.
+    vals_up.qry_coord = vals_up.qry_start
+    vals_down.qry_coord = vals_down.qry_end
+    anchors = pd.concat([pd.concat([vals_up, vals_down], axis=0), pd.DataFrame({'qry_strand':strand}, index=['upstream','downstream'])], axis=1)
+      
+#     # old: interpolated the actual position on the alignment. however, this is inaccurate because alignments can contain gaps and so they are not necessarily the same length in ref and qry
+#     if strand == '+'
+#       vals_up = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]+x_relative_to_upstream, strand]
+#       vals_down = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]+x_relative_to_upstream, strand] # add an offset of 1 between up- and downstream anchor
+#     else:
+#       vals_up = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]-x_relative_to_upstream, strand]
+#       vals_down = [chrom, x, ov_aln.qry_chrom[0], ov_aln.qry_start[0]-x_relative_to_upstream, strand] # add an offset of 1 between up- and downstream anchor
+#     anchors = pd.DataFrame.from_dict({'upstream': vals_up, 'downstream': vals_down}, orient='index', columns=anchor_cols)
   else:
     anchor_upstream = closest_anchors.loc[abs(closest_anchors.loc[closest_anchors.ref_coord < x,].ref_coord - x).sort_values().index,].head(1).rename(index=lambda x:'upstream')
     if anchor_upstream.shape[0] > 0:
@@ -269,21 +221,27 @@ def get_anchors(df, chrom, x):
     anchor_downstream = closest_anchors.loc[abs(closest_anchors.loc[closest_anchors.ref_coord > x,].ref_coord - x).sort_values().index,].head(1).rename(index=lambda x:'downstream')
     if anchor_downstream.shape[0] > 0:
       anchor_downstream['qry_strand'] = '+' if anchor_downstream.qry_start[0] < anchor_downstream.qry_end[0] else '-'
+    if not anchor_upstream.shape[0] + anchor_downstream.shape[0] == 2: # if not both up- and downstream anchors were found (e.g. at synteny break points where one side does not have any anchors to the majority chromosome)
+      return pd.DataFrame(columns=anchor_cols)
     anchors = pd.concat([anchor_upstream, anchor_downstream]).loc[:,anchor_cols]
   anchors.loc[:,['ref_coord','qry_coord']] = anchors.loc[:,['ref_coord','qry_coord']].astype(int) # convert numeric coordinates to int
   return anchors
 
-def projection_score(x, anchors, genome_size):
+def get_scaling_factor(genome_size_reference, half_life_distance):
+  # function to determine scaling factor that produces a score of 0.5 for a given half_life_distance in the reference species.
+  # this scaling factor will be used in all other species in the graph, but scaled to the according respective genome sizes.
+  return -int(half_life_distance) / (genome_size_reference * np.log(0.5))
+
+def projection_score(x, anchors, genome_size, scaling_factor=5e-4):
   # anchors must be the locations of the up- and downstream anchors, not the data frame with ref and qry coordinates.
   # the scaling factor determines how fast the function falls when moving away from an anchor.
   # ideally, we define a half-life X_half, i.e. at a distance of X_half, the model is at 0.5.
   # with a scaling factor of 50 kb, X_half is at 20 kb (with 100 kb at 10 kb)
-  scaling_factor = 5e-4
   d = min([abs(x-y) for y in anchors])
   return np.exp(-d / (genome_size * scaling_factor))
 
 ### the function takes the input from shortest_path[ref] and returns the values to put into orange
-def project_genomic_location(ref, qry, ref_coords, score, pwaln, genome_size):
+def project_genomic_location(ref, qry, ref_coords, score, pwaln, genome_size, scaling_factor):
   ref_chrom = ref_coords.split(':')[0]
   ref_loc = int(ref_coords.split(':')[1])
   anchors = get_anchors(pwaln[ref][qry], ref_chrom, ref_loc)
@@ -295,7 +253,7 @@ def project_genomic_location(ref, qry, ref_coords, score, pwaln, genome_size):
   qry_loc = int(anchors.qry_coord['upstream'] + np.diff(anchors.qry_coord)[0] * x_relative_to_upstream)
   qry_chrom = anchors.qry_chrom['upstream']
   # ONLY USE DISTANCE TO CLOSE ANCHOR AT REF SPECIES, because at the qry species it should be roughly the same as it is a projection of the reference.
-  score *= projection_score(ref_loc, anchors.ref_coord, genome_size[ref]) # * projection_score(qry_loc, anchors.qry_coord, genome_size[qry]))
+  score *= projection_score(ref_loc, anchors.ref_coord, genome_size[ref], scaling_factor)
   qry_coords = qry_chrom + ':' + str(qry_loc)
   return score, qry_coords, ref_anchors, qry_anchors
 
@@ -307,7 +265,7 @@ def get_shortest_path_to_qry(x, shortest_path):
       l.append(x)
   return pd.DataFrame({k : shortest_path[k] for k in l[::-1]}, index=['score','from','coords','ref_anchors', 'qry_anchors']).T.loc[:,['from','score','coords','ref_anchors', 'qry_anchors']]
 
-def get_shortest_path(ref, qry, ref_coords, species, pwaln, genome_size, verbose=False):
+def get_shortest_path(ref, qry, ref_coords, species, pwaln, genome_size, scaling_factor, verbose=False):
   if verbose:
     print('current species: (might be a dead end)')
   shortest_path = {}
@@ -328,7 +286,7 @@ def get_shortest_path(ref, qry, ref_coords, species, pwaln, genome_size, verbose
       if current_score <= nxt_best_score:
         continue # if the score to current_species was lower than any previous path to nxt_species, nxt_species won't be reached faster through current_species. ignore and move on to the next species
       else:
-        nxt_score, nxt_coords, current_anchors, nxt_anchors = project_genomic_location(current_species, nxt_species, current_coords, current_score, pwaln, genome_size)
+        nxt_score, nxt_coords, current_anchors, nxt_anchors = project_genomic_location(current_species, nxt_species, current_coords, current_score, pwaln, genome_size, scaling_factor)
       if nxt_score <= nxt_best_score:
         continue # only save the current path to nxt_species if it was indeed faster than any previous path to it
       else:
@@ -338,35 +296,56 @@ def get_shortest_path(ref, qry, ref_coords, species, pwaln, genome_size, verbose
   return shortest_path_to_qry, shortest_path, orange
 
 
-def get_anchors_between_boundaries(pwaln, ref, qry, ob):
+def get_anchors_between_boundaries(pwaln, current_species, next_species, ob, reference_species, species, rel_ori, verbose=False):
   # this function returns all anchors between two genomic coordinates of a ref to a qry species
   # new: added orientation check: local small inversion rarely give single or few alignments that are oriented the 'wrong' way. discard them. only keep the major_orientation
-  df = pwaln[ref][qry]
-  # get anchors and check if they lie within ref's and qry's OBs
-  df = df.loc[(df.ref_chrom == ob[ref]['current_chrom'][0]) & (df.ref_end >= ob[ref].loc['upstream','current_coord']) & (df.ref_start <= ob[ref].loc['downstream','current_coord'])]
+  # new: instead of only looking at anchors in OB, first get topn closest anchors to the center of the OB from get_anchors() which includes a major_chrom and collinearity check, then filter for anchors in OB-span
+  # this better detects local inversions and especially outliers. the disadvantage is that it could ignore true local inversions, but then the species will probably just not be used as a bridge which is better than including wrong anchors.
+  if not current_species in species: # in case the current species was eliminated before from the species list because it had contradicting orientation to reference and target (i.e. local inversions)
+    return pd.DataFrame(), species, rel_ori
+  
+  # get topn anchors from get_anchors() (usually less than top n because of the major_chrom and collinearity check in get_anchors())
+  anchor_cols = ['ref_chrom','ref_start','ref_end','qry_chrom','qry_start','qry_end']
+  ob_center = int(np.mean(ob[current_species].current_coord))
+  df = get_anchors(pwaln[current_species][next_species], ob[current_species].current_chrom[0], ob_center, return_top_n=True)[anchor_cols]
+  
+  # orientation check: local small inversion rarely give single or few alignments that are oriented the 'wrong' way. discard them. only keep the major_orientation
+  # do this check here instead of after the qry-OB-check when the number of anchors might be down to very few
+  if df.shape[0] > 0:
+    same_orientation = (df.qry_start - df.qry_end) < 0
+    majority_has_same_orientation = same_orientation.value_counts().idxmax()
+    df = df.loc[same_orientation==majority_has_same_orientation]
+    # save relative orientation and remove the current (ref) species from the species list if the relative orientation of current and target contradict the relative orientations of reference to current and to target
+    rel_ori = '+' if majority_has_same_orientation else '-'
+    strand_sign = {'+':1, '-':-1}
+    if not current_species == reference_species and not strand_sign[rel_ori] * strand_sign[rel_ori] == strand_sign[rel_ori]:
+      species = species[~np.in1d(species,[current_species])]
+      if verbose:
+        print('Removed %s in get_anchors_between_boundaries() (relative orientation current-%s contradict reference-%s and reference-%s)' %(current_species,next_species,current_species,next_species))
+      return pd.DataFrame(), species, rel_ori
+  
+  # filter for anchors within ref's OB
+  df = df.loc[(df.ref_chrom == ob[current_species]['current_chrom'][0]) & (df.ref_end >= ob[current_species].loc['upstream','current_coord']) & (df.ref_start <= ob[current_species].loc['downstream','current_coord'])]
+  
+  # filter for anchors within qry's OB
   if df.shape[0] > 0:
     if df.qry_start.values[0] < df.qry_end.values[0]: # if qry is inverted, check for inverted start/end being located within OB span.
-      df = df.loc[(df.qry_chrom == ob[qry]['current_chrom'][0]) & (df.qry_end >= ob[qry].loc['upstream','current_coord']) & (df.qry_start <= ob[qry].loc['downstream','current_coord']), :]
+      df = df.loc[(df.qry_chrom == ob[next_species]['current_chrom'][0]) & (df.qry_end >= ob[next_species].loc['upstream','current_coord']) & (df.qry_start <= ob[next_species].loc['downstream','current_coord']), :]
     else:
-      df = df.loc[(df.qry_chrom == ob[qry]['current_chrom'][0]) & (df.qry_start >= ob[qry].loc['upstream','current_coord']) & (df.qry_end <= ob[qry].loc['downstream','current_coord']), :]
+      df = df.loc[(df.qry_chrom == ob[next_species]['current_chrom'][0]) & (df.qry_start >= ob[next_species].loc['upstream','current_coord']) & (df.qry_end <= ob[next_species].loc['downstream','current_coord']), :]
   ### do I need to check if the chromosome is the same as the one the direct zf-mm anchors point to? if so, only for the target?
   ### if I don't, few helpful anchors could be discarded when the number of anchors pointing to outliers is bigger. but probably this is negligible anyways.
   # collinearity check (new updated function is much faster (< 100 ms for 1000 coordinates) so I can check them all for collinearity)
   df = df.iloc[np.intersect1d(df.qry_start.values, longest_sorted_subsequence(df.qry_start.values.astype(int)), return_indices=True)[1]]
   
-  # orientation check: local small inversion rarely give single or few alignments that are oriented the 'wrong' way. discard them. only keep the major_orientation
-  if df.shape[0] > 0:
-    same_orientation = (df.qry_start - df.qry_end) < 0
-    majority_has_same_orientation = same_orientation.value_counts().idxmax()
-    df = df.loc[same_orientation==majority_has_same_orientation]
-  
-  df.insert(0, 'ref', ref)
-  df.insert(4, 'qry', qry)
-  return df
+  df.insert(0, 'ref', current_species)
+  df.insert(5, 'qry', next_species)
+  return df, species, rel_ori
 
 def set_ob(new_boundary, sp, d, ob, verbose=False, silent=False):
-  # this function takes a given coordinate and sets it as the new boundary if it lies within the previously defined ob and thus decreases the span of the boundaries. If not, the currently stored boundary is returned.
-  # run this function separately for each direction
+  # this function takes a given coordinate and sets it as the new boundary if it lies within the previously defined ob and thus decreases the span of the boundaries.
+  # If not, the currently stored boundary is returned.
+  # Run this function separately for each direction
   directions = ['upstream','downstream']
   opposite_direction = {d[0]: d[1] for d in (directions,directions[::-1])}
   current_boundary = ob.get(sp, pd.DataFrame(index=[d]))
@@ -394,21 +373,33 @@ def set_ob(new_boundary, sp, d, ob, verbose=False, silent=False):
     ob[sp] = pd.concat([current_boundary.loc[[opposite_direction[d]]], df.iloc[[idx]]], axis=0, sort=False).loc[directions] # identify if the old or the new boundaries are decreasing the span and return that row
     return ob
 
-def get_ob(ob, reference_species, reference_coords, current_species, current_coords, target, species, pwaln, relative_orientation):
+def get_ob(ob, reference_species, reference_coords, current_species, current_coords, target, species, pwaln, relative_orientation, verbose=False):
   # function for finding outer boundaries for both directions as the direct anchors to the target species. this function is run in the beginning to find the first set of OBs for every species.
   directions = ['upstream','downstream']
+  opposite_direction = {d[0]: d[1] for d in (directions,directions[::-1])}
   if not current_species == target:
     try:
       direct_anchors = pd.concat([get_anchors(pwaln[current_species][target], current_coords[d]['chrom'], current_coords[d]['coord']).loc[d] for d in directions], axis=1).T
     except KeyError: # in this case, the current species does not have both up-/ and downstream anchors directly to mouse and will be removed from the species list.
       species = species[~np.in1d(species,[current_species])]
+      if verbose:
+        print('Removed %s in get_ob() (does not have 2 direct anchors to target)' %current_species)
       return ob, species, relative_orientation
     # check if both anchors have the same orientation. if not, the position is likely at a synteny break position. in that case, remove the current species from the species list
     if len(np.unique(direct_anchors.qry_strand)) == 2:
       species = species[~np.in1d(species,[current_species])]
+      if verbose:
+        print('Removed %s in get_ob() (anchors have different orientation)' %current_species)
       return ob, species, relative_orientation
     # store information about the relative orientation of the current species to the target
     relative_orientation.loc[current_species,target] = relative_orientation.loc[target,current_species] = direct_anchors.qry_strand[0]
+    # remove the current species from the species list if the relative orientation of current and target contradict the relative orientations of reference to current and to target
+    strand_sign = {'+':1, '-':-1}
+    if not reference_species == 'origin' and not strand_sign[relative_orientation.loc[reference_species,current_species]] * strand_sign[relative_orientation.loc[current_species,target]] == strand_sign[relative_orientation.loc[reference_species,target]]:
+      if verbose:
+        print('Removed %s in get_ob() (relative orientation current-target contradict reference-current and reference-target)' %current_species) 
+      species = species[~np.in1d(species,[current_species])]
+      return ob, species, relative_orientation
     # set the current species boundaries
     for d in directions:
       # new_boundary contains the ref-coord of the current->target anchor and the coordinate of the reference species that lead to the current species.
@@ -416,19 +407,28 @@ def get_ob(ob, reference_species, reference_coords, current_species, current_coo
       # the latter is only saved for later that I can back-track how I reached the current species, i.e. to identify the final reference anchors involved in the path to the most narrow target anchor span.
       if reference_coords == 'origin':
         new_boundary_prev_coords = pd.DataFrame({'prev_species': reference_species, 'prev_chrom':reference_coords, 'prev_coord':reference_coords}, index=[d])
+#         current_d = d
       else:
         new_boundary_prev_coords = pd.DataFrame({'prev_species': reference_species, 'prev_chrom':reference_coords[d]['chrom'], 'prev_coord':reference_coords[d]['coord']}, index=[d])
+        # combine upstream with downstream anchor if relative orientation is '-'
+#         current_d = d if relative_orientation.loc[reference_species,current_species] =='+' else opposite_direction[d]
       new_boundary = pd.concat([new_boundary_prev_coords, direct_anchors.loc[[d]]], axis=1).rename(columns={'ref_chrom':'current_chrom', 'ref_coord':'current_coord'})
       ob = set_ob(new_boundary, current_species, d, ob, silent=True)
     new_target_boundaries = orient_anchors(pd.concat([pd.DataFrame({'prev_species':current_species}, index=directions), direct_anchors], axis=1).rename(columns={'ref_chrom':'prev_chrom', 'ref_coord':'prev_coord','qry_chrom':'current_chrom', 'qry_coord':'current_coord'}), coord_column='current_coord')
+    # switch up-/downstream labels and qry_start/qry_end in case the current-target orientation is '-' (analogous to orient_anchors()). otherwise the target will have inverted coordinates.
+    if relative_orientation.loc[current_species,target] == '-':
+      new_target_boundaries[['qry_start','qry_end']] = new_target_boundaries[['qry_end','qry_start']].values
+#       new_target_boundaries.rename(index={'upstream':'downstream', 'downstream':'upstream'}, inplace=True)
     for d in directions:
       ob = set_ob(new_target_boundaries.loc[[d]], target, d, ob, silent=True)
   return ob, species, relative_orientation
 
-def orient_anchors(anchors, coord_column='coord'):
+def orient_anchors(anchors, coord_column='coord', reverse_orient=False):
   # This function checks anchors if they are inverted. and switches the indices (upstream to downstream and vice versa).
   directions = ['upstream','downstream']
   if anchors.loc['upstream',coord_column] - anchors.loc['downstream',coord_column] > 0:
+    anchors.index = anchors.index[::-1]
+  if reverse_orient: # reverse orient
     anchors.index = anchors.index[::-1]
   return(anchors.loc[directions])
 
@@ -440,8 +440,11 @@ def get_next_anchor(available_species, df, x, direction, verbose=False):
   # instead, go to the outer coordinate (upstream: start, downstream: end).
   # if there are multiple alignments, take the one with the outer coordinate the closest.
   # once chosen, check if there is no non-overlapping anchor that is closer to the outer coordinate. if there is, ignore the alignment and take the non-overlapping anchor (set a flag to know)
+  if df.shape == (0,0): # return empty data frame if there are no anchors
+    return pd.DataFrame()
   df = df.loc[df.qry.apply(lambda x: x in available_species)]
-  ov_aln = df.loc[(df.ref_start < x) & (df.ref_end > x)]
+  ov_aln = df.loc[(df.ref_start < x) & (df.ref_end > x)].copy()
+  ov_aln.loc[:,'opposite_strand'] = [True if span < 0 else False for span in np.diff(ov_aln[['qry_start','qry_end']])]
   ov_aln_sorted = pd.DataFrame()
   if ov_aln.shape[0] > 0: # check if x overlaps an alignment and take the one where the outer coordinate is closest (upstream: start, downstream: end)
     if direction == 'upstream':
@@ -449,15 +452,17 @@ def get_next_anchor(available_species, df, x, direction, verbose=False):
       # resize to 1 bp width on outer coordinate because that is the only thing I can confidently do. everything else (interpolation) might be a move in the inward direction.
       ov_aln_sorted.ref_end = ov_aln_sorted.ref_start
       ov_aln_sorted.qry_end = ov_aln_sorted.qry_start
-    elif direction == 'downstream':
+    else:
       ov_aln_sorted = ov_aln.copy().sort_values(by='ref_end', ascending=True)
       ov_aln_sorted.ref_start = ov_aln_sorted.ref_end
       ov_aln_sorted.qry_start = ov_aln_sorted.qry_end
-    else:
-      raise ValueError('direction must be either upstream or downstream')
         
   # check if the outer coordinate of the alignment is still closer than the inner coordinate of the next anchor. if not, set ignore_aln flag to True and take the next non-overlapping anchor.
-  next_non_ov_anchors = df.loc[df.ref_end < x,:].sort_values(by='ref_end', ascending=False)
+  if direction == 'upstream':
+    next_non_ov_anchors = df.loc[df.ref_end < x,:].sort_values(by='ref_end', ascending=False)
+  else:
+    next_non_ov_anchors = df.loc[df.ref_start > x,:].sort_values(by='ref_start', ascending=True)
+  next_non_ov_anchors.loc[:,'opposite_strand'] = [True if span < 0 else False for span in np.diff(next_non_ov_anchors[['qry_start','qry_end']])]
   if next_non_ov_anchors.shape[0] == 0 and ov_aln_sorted.shape[0] == 0: # in case no anchor was found at all
     res = pd.Series()
   elif next_non_ov_anchors.shape[0] > 0 and ov_aln_sorted.shape[0] == 0: # in case only non-overlapping anchors were found
@@ -469,41 +474,20 @@ def get_next_anchor(available_species, df, x, direction, verbose=False):
     if ((direction == 'upstream') and (ov_aln_sorted.iloc[0]['ref_end'] < next_non_ov_anchors.iloc[0]['ref_end'])) or ((direction == 'downsteam') and (ov_aln_sorted.iloc[0]['ref_start'] > next_non_ov_anchors.iloc[0]['ref_start'])): # next non-overlapping anchor is closer than outer coord of overlapping alignment
       if verbose:
         inner_anchor_coord = next_non_ov_anchors.iloc[0]['ref_end'] if direction == 'upstream' else next_non_ov_anchors.iloc[0]['ref_start']
-        print('Outer coordinate of overlapping alignment : %s %s-%s to %s %s-%s is further than inner coordinate of next non-overlapping anchor (%s). Returned the latter.' %tuple(ov_aln.iloc[0][['ref','ref_start','ref_end','qry','qry_start','qry_end']]),(inner_anchor_coord,))
+        print('Outer coordinate of overlapping alignment: %s %s-%s to %s %s-%s is further than inner coordinate of next non-overlapping anchor (%s). Returned the latter.' %(tuple(ov_aln.loc[ov_aln_sorted.iloc[0].name,['ref','ref_start','ref_end','qry','qry_start','qry_end']])+(inner_anchor_coord,)))
       res = next_non_ov_anchors.iloc[0]
     else: # the overlapping alignment's outer coords are still closer than the next non-overlapping anchor
       if verbose:
-        print('overlapping alignment: %s %s-%s to %s %s-%s' %tuple(ov_aln.iloc[0][['ref','ref_start','ref_end','qry','qry_start','qry_end']])) # print the original alignment coords, not the resized
+        print('Overlapping alignment: %s %s-%s to %s %s-%s' %tuple(ov_aln.loc[ov_aln_sorted.iloc[0].name,['ref','ref_start','ref_end','qry','qry_start','qry_end']])) # print the original alignment coords, not the resized
       res = ov_aln_sorted.iloc[0]
   
   return res
-    
-    ## old:
-    # x_relative_to_aln_start = x - df['ref_start']
-    # # assign new start and end values to be the exact bp location of x (and its equivalent position in the qry)
-    # df['ref_start'] = df['ref_end'] = x
-    # df['qry_start'] = df['qry_end'] = df['qry_start'] + x_relative_to_aln_start if df['qry_start'] < df['qry_end'] else df['qry_start'] - x_relative_to_aln_start
-    
-#     df = pd.DataFrame(df).T # just because in the else case results in a dataframe (and here a series)
-  
-#   else: # no overlap? find next neighboring anchor
-#     if direction == 'upstream':
-#       df = df.loc[df.ref_end < x,:].sort_values(by='ref_end', ascending=False)
-#     elif direction == 'downstream':
-#       df = df.loc[df.ref_start > x,:].sort_values(by='ref_start', ascending=True)
-#     else:
-#       raise ValueError('direction must be either upstream or downstream')
-#   if df.shape[0] > 0:
-#     return df.iloc[0]
-#   else:
-#     return pd.Series()
 
 def is_outside_boundary(x, ob, current_species):
   # this function returns True if x is between the boundaries stored in ob for a particular species
   return x not in np.concatenate([np.arange(*ob[current_species]['current_coord'].values), np.arange(*ob[current_species]['current_coord'].values,-1)])[1:-1] # [1:-1] excludes boundaries, i.e. when x reached the boundary it is considered 'outside'
 
-def move_through_anchors(available_species, prev_species, prev_chrom, prev_coord, prev_direction, current_species, current_chrom, current_coord, direction, target, anchors, ob, relative_orientation, verbose=False, silent=False):
-#   print(current_species)
+def move_through_anchors(available_species, reference_species, prev_species, prev_chrom, prev_coord, prev_direction, current_species, current_chrom, current_coord, direction, target, anchors, ob, relative_orientation, verbose=False, silent=False):
   directions = ['upstream','downstream']
   opposite_direction = {d[0]: d[1] for d in (directions,directions[::-1])}
   # set local outer boundary to what is currently stored in global OB, then update the global OB to the current position.
@@ -535,12 +519,9 @@ def move_through_anchors(available_species, prev_species, prev_chrom, prev_coord
     # important: it is the CURRENT direction that determines if we want the start or the end coord of the qry anchor.
     # reason: if the next species is inverted, start and end coordinates will be switched when running move_through_anchors() with the next species (i.e. we will invert our own view).
     next_species = next_anchor.qry
-    next_direction = direction if next_anchor.qry_start < next_anchor.qry_end else opposite_direction[direction]
+    next_direction = direction if next_anchor.opposite_strand == False else opposite_direction[direction]
     next_chrom = next_anchor.qry_chrom
     next_coord = next_anchor.qry_end if direction == 'upstream' else next_anchor.qry_start
-    # store information about relative orientation of current and next species (if next is invertet to current) so that later during path reconstruction I know which direction to take.
-    # store it in dict with both orders (current-next / next-current) so that it doesn't matter which way I call the dict later
-    relative_orientation.loc[current_species,next_species] = relative_orientation.loc[next_species,current_species] = '+' if direction == next_direction else '-'
     if verbose:
       print('Next anchor points to: %s %s %s' %(next_species, next_coord, next_direction))
     # discard the next anchor if it points outside of OB in the next species and move 1 position in the current direction
@@ -556,18 +537,17 @@ def move_through_anchors(available_species, prev_species, prev_chrom, prev_coord
     elif next_species == target:
       new_target_boundary = pd.DataFrame({'prev_species':current_species,'prev_chrom':current_chrom,'prev_coord':current_coord,'current_chrom':next_chrom,'current_coord':next_coord}, index=[next_direction])
       if not silent:
-        print('Reached %s target from %s at %s' %(next_direction,current_species,next_coord))
+        print('Reached target from %s at %s' %(current_species,next_coord))
       ob = set_ob(new_target_boundary, target, next_direction, ob, verbose=verbose, silent=silent)
       break
     else:
       next_available_species = np.setdiff1d(available_species, current_species) # keeps track of previously visited species and removes them from the list to prevent loops (happens rarely, I guess for non-syntenic regions)
-      ob, relative_orientation = move_through_anchors(next_available_species, current_species, current_chrom, current_coord, direction, next_species, next_chrom, next_coord, next_direction, target, anchors, ob, relative_orientation, verbose, silent)
+      ob, relative_orientation = move_through_anchors(next_available_species, reference_species, current_species, current_chrom, current_coord, direction, next_species, next_chrom, next_coord, next_direction, target, anchors, ob, relative_orientation, verbose, silent)
   if prev_species == 'origin' and not silent:
     print('Reached %s boundary of reference species. Done.\n' %direction)
   return ob, relative_orientation
 
 def walk_path(ob, to_species, to_direction, to_strand, relative_orientation, strand_sign):
-#   print(to_species)
   # this function is used in get_anchor_path() to walk backwards to the next edge in the path
   df = ob[to_species].loc[[to_direction],['prev_species','prev_chrom','prev_coord','current_chrom','current_coord']]
   df.columns = ['from_species','from_chrom','from_coord','to_chrom','to_coord']
@@ -596,44 +576,7 @@ def get_anchor_path(direction, ob, reference, target, relative_orientation):
   path.columns = pd.MultiIndex.from_tuples([tuple(x.split('_')) for x in path.columns])
   return path
 
-# def get_anchor_path(ob, reference, target, relative_orientation, direction):
-#   strand_sign = {'+':1, '-':-1}
-#   strand_sign_inv =  {v: k for k,v in strand_sign.items()}
-#   # this function returns the species path taken to reach the boundary of a given direction for the minimal anchor span in the target species
-#   directions = ['upstream','downstream']
-#   opposite_direction = {d[0]: d[1] for d in (directions,directions[::-1])}
-#   cols = ['prev_species','prev_chrom','prev_coord','current_chrom','current_coord']
-#   # set target direction and strand relative to reference. that way we make sure that we arrive in the reference species in the correct orientation, i.e. the direction that was passed to this function, and that the reference is on '+'.
-#   d = direction if relative_orientation.loc[reference,target] == '+' else opposite_direction[direction]
-#   path = ob[target].loc[[d],cols]
-#   path.insert(3,'current_species',target)
-#   path.insert(6,'current_strand',relative_orientation.loc[reference,target])
-#   prev_species, current_species = path.iloc[-1][['prev_species','current_species']]
-#   prev_strand = strand_sign[relative_orientation.loc[prev_species,current_species]]
-#   path.insert(3,'prev_strand',prev_strand)
-#   while True:
-#     if prev_strand == -1: # switch direction if the previous species is inverted
-#       d = opposite_direction[d]
-#     step = ob[prev_species].loc[[d],cols]
-#     step.insert(3,'current_species',prev_species)
-#     step.insert(6,'current_strand',prev_strand)
-#     # set prev and current to new values
-#     prev_species, current_species = step.prev_species[0], step.current_species[0]
-#     # next, I'm gonna take the relative orientation of both species and multiply that with the actual current strand to get the actual prev strand
-#     prev_strand = strand_sign[relative_orientation.loc[prev_species,current_species]] * step['current_strand'][0] if not prev_species == 'origin' else 1
-#     step.insert(3,'prev_strand',prev_strand)
-#     path = path.append(step)
-#     # reverse order and reindex
-#     if prev_species == 'origin':
-#       path = path.loc[::-1].reset_index(drop=True)
-#       path.replace(strand_sign_inv, inplace=True) # replace 1 and -1 strand information with '+' and '-'
-#       path['reference_direction'] = direction
-#       path.set_index('reference_direction', inplace=True)
-#       path.columns = pd.MultiIndex.from_tuples([tuple(x.split('_')) for x in path.columns])
-#       path.columns.set_levels(['to','from','id','reference_direction'], level=0, inplace=True)
-#       return path
-
-def propagate_anchors(reference, target, coord, coord_id, pwaln, verbose=False, silent=False):
+def propagate_anchors(reference, target, coord, coord_id, pwaln, verbose=False, silent=False, test_mode=False):
   # initialize for reference species
   if not silent:
     print('Initializing variables')
@@ -648,7 +591,7 @@ def propagate_anchors(reference, target, coord, coord_id, pwaln, verbose=False, 
   ob = {} # define dict with outer boundaries
   current_species = reference
   current_coords = {d: x for d in directions} # in the reference, starting point x is both the up- and downstream coordinate. every other species will first be reached through an anchor from the reference an those two coordinates will thus differ.
-  ob, species, relative_orientation = get_ob(ob, 'origin', 'origin', reference, current_coords, target, species, pwaln, relative_orientation)
+  ob, species, relative_orientation = get_ob(ob, 'origin', 'origin', reference, current_coords, target, species, pwaln, relative_orientation, verbose)
   # if the reference species is not in the species list anymore, that means that not both direct up- and downstream anchors were found from refernce to target.
   # in that case, return an empty path and ob. further handling of this case in ~/dev/propagate_anchors.py (message printed)
   if not reference in species:
@@ -659,36 +602,60 @@ def propagate_anchors(reference, target, coord, coord_id, pwaln, verbose=False, 
       print('Setting outer boundaries')
     for current_species in species:
       if not current_species in [reference,target]:
+#         if current_species=='cteIde1:'
         direct_anchors_from_reference = get_anchors(pwaln[reference][current_species], x['chrom'], x['coord'])
         if not direct_anchors_from_reference.shape[0] == 2: # in this case, the reference species does not have anchors in both directions from x to the current species. Remove from species list.
           species = species[~np.in1d(species,[current_species])]
+          if verbose:
+            print('Removed %s in propagate_anchors() (does not have 2 direct anchors from reference to %s: ' %(current_species,current_species))
           continue
         else:
           relative_orientation.loc[reference,current_species] = relative_orientation.loc[current_species,reference] = direct_anchors_from_reference.qry_strand[0]
           current_coords = orient_anchors(direct_anchors_from_reference.rename(columns={'qry_chrom':'chrom', 'qry_coord':'coord'}).loc[:,['chrom','coord']], coord_column='coord').T.to_dict()
-          reference_coords = orient_anchors(direct_anchors_from_reference.rename(columns={'ref_chrom':'chrom', 'ref_coord':'coord'}).loc[:,['chrom','coord']], coord_column='coord').T.to_dict()
-#         current_coords[current_species] = direct_anchors_from_reference.T.to_dict() # this line looks like an old artefact and can be deleted
-        ob, species, relative_orientation = get_ob(ob, reference, reference_coords, current_species, current_coords, target, species, pwaln, relative_orientation)
-  #   return ob
+          # reverse_orient reference coords if relative orientation is '-' so that the correct from-coordinate is saved in ob in get_ob()
+          reverse_orient = True if relative_orientation.loc[reference, current_species] == '-' else False
+          reference_coords = orient_anchors(direct_anchors_from_reference.rename(columns={'ref_chrom':'chrom', 'ref_coord':'coord'}).loc[:,['chrom','coord']], coord_column='coord', reverse_orient=reverse_orient).T.to_dict() 
+        ob, species, relative_orientation = get_ob(ob, reference, reference_coords, current_species, current_coords, target, species, pwaln, relative_orientation, verbose)
     ob_original = copy.deepcopy(ob)
+#     return ob, relative_orientation, species
 
     # for every species, call all anchors to any other species between OB
     if not silent:
       print('Calling collinear anchors between outer boundaries')
-    anchors = {ref: pd.concat([get_anchors_between_boundaries(pwaln, ref, qry, ob) for qry in species if not qry in [reference,ref]]).sort_values(by='ref_start') for ref in species if not ref == target}
-#     return anchors
-
+    for ref in species:
+      anchors[ref] = pd.DataFrame()
+      for qry in species:
+          if not qry in [reference,ref]:
+            anchors_ref_qry, species, rel_ori = get_anchors_between_boundaries(pwaln, ref, qry, ob, reference, species, relative_orientation.loc[ref,qry], verbose)
+            if not relative_orientation.loc[ref,qry] in ['+','-'] and not rel_ori == relative_orientation.loc[ref,qry]:
+              # in this case the new anchor orientation contradicts what was previously saved as the relative orientation. this probably only happens in the reference-target case,
+              # because there the initial orientation is determined by the direct anchors of the initial coordinate, and now we look for the anchors in relation to the OB-center
+              # if the original X is close to a synteny break, this might give us two different relative orientations. in that case, remove the qry from the species list and if it is the reference, abort
+              species = species[~np.in1d(species,[current_species])]
+              if verbose:
+                print('Removed %s in propagate_anchors() (orientation of anchors to %s between OB contradicts originally determined orientation: ' %(ref,qry))
+              if ref == reference:
+                print('Removed the reference species! In that case, the original coordinate likely lies at a synteny break point and this method will fail. Aborted.')
+                return None, None
+            relative_orientation.loc[ref,qry] = rel_ori
+            if not ref in species:
+              del anchors[ref]
+              break
+            anchors[ref] = pd.concat([anchors[ref], anchors_ref_qry])
+#     return anchors, relative_orientation
+    
     # move through anchors
     if not silent:
       print('Propagating anchors through species graph\n')
     for direction in directions:
-      ob, relative_orientation = move_through_anchors(species, 'origin', 'origin', 'origin', direction, reference, x['chrom'], x['coord'], direction, target, anchors, ob, relative_orientation, verbose=verbose, silent=silent)
-
+      ob, relative_orientation = move_through_anchors(species, reference, 'origin', 'origin', 'origin', direction, reference, x['chrom'], x['coord'], direction, target, anchors, ob, relative_orientation, verbose=verbose, silent=silent)
+    if test_mode:
+      return ob, anchors, relative_orientation, ob_original
+      
     # obtain optimal paths
     if not silent:
       print('Fetching optimal paths')
-#     return ob, anchors, relative_orientation, ob_original
     path = pd.concat([get_anchor_path(direction, ob, reference, target, relative_orientation) for direction in directions], axis=0)
     path['id'] = coord_id
     path = path.reset_index().set_index(['id',*path.index.names]) 
-  return ob, path #, anchors, relative_orientation, ob_original
+  return ob, path

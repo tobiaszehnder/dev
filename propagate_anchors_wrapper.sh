@@ -14,7 +14,8 @@ nthreads=$5
 # check if bed-file contains at least 4 columns
 [ $(awk '{print NF}' $bed | sort -nu | head -n 1) -lt 4 ] && echo "Error: bed-file must contain at least 4 columns with the 4th being the GRB ID / name." && exit 0
 
-mkdir -p tmp
+tmp_dir=tmp_${bed%.*}
+mkdir -p $tmp_dir
 l=$(< $bed wc -l)
 ERT=$(printf "%.0f" "$(echo "30*$l/$nthreads" | bc -l)") # based on a estimated average runtime of 30 sec per job
 echo "Estimated runtime: $((ERT/3600))h $(bc <<< $((ERT/60)))m $(bc <<< $ERT%60)s"
@@ -27,7 +28,7 @@ while IFS='' read -r LINE || [ -n "${LINE}" ]; do
 	id=${bed_row[3]}
 	coord=${bed_row[0]}:$(($((${bed_row[1]}+${bed_row[2]}))/2)) # center of region
 	echo $id $coord
-	sem --id $sem_id -j${nthreads} --timeout 100 propagate_anchors.py $reference $target $coord $id $path_pwaln_pkl tmp
+	sem --id $sem_id -j${nthreads} --timeout 100 propagate_anchors.py $reference $target $coord $id $path_pwaln_pkl $tmp_dir
 done < $bed
 
 sem --id $sem_id --wait # wait until all sem jobs are completed before moving on
@@ -38,7 +39,7 @@ echo "Effective runtime: ${difftime}"
 # concatenate tmp output files to one file, delete tmp files
 outfile=${bed/bed/aprop}
 ids=($(cut -f4 $bed))
-cat "tmp/${ids[0]}.aprop" > $outfile
-for id in ${ids[@]:1}; do eval tail -n+4 -q "tmp/${id}.aprop" >> $outfile; done
-rm -r tmp
+cat "${tmp_dir}/${ids[0]}.aprop" > $outfile
+for id in ${ids[@]:1}; do eval tail -n+4 -q "${tmp_dir}/${id}.aprop" >> $outfile; done
+rm -r $tmp_dir
 echo "Done"

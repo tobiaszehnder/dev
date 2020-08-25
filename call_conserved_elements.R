@@ -1,7 +1,7 @@
 #! /usr/bin/env Rscript
 
 args <- commandArgs(trailingOnly=T)
-if (length(args) != 4) stop('Usage: ./call_conserved_elements.R <species1> <species2> <type[CE/CNE]> <cneType[merged/final]')
+if (length(args) != 4) stop('Usage: ./call_conserved_elements.R <species1> <species2> <type[CE/CNE]> <processing[merged/final]')
 
 suppressMessages(library(rtracklayer)); suppressMessages(library(CNEr)); suppressMessages(library(Organism.dplyr))
 data_dir <- '/project/wig/tobias/reg_evo/data'
@@ -14,8 +14,8 @@ spcs1 <- args[1]
 spcs2 <- args[2]
 type <- tolower(args[3])
 if (!(type %in% c('ce', 'cne'))) stop('type must be either CE or CNE')
-cneType <- args[4]
-if (!(cneType %in% c('merged', 'final'))) stop('cneType must be either merged or final')
+processing <- args[4]
+if (!(processing %in% c('merged', 'final'))) stop('processing must be either merged or final')
 window <- 50L
 identity <- 35L
 cne_dir <- '/project/wig/tobias/reg_evo/data/CNEs/CNEr'
@@ -56,21 +56,21 @@ get_exons <- function(spcs) {
   return(gr)
 }
 
-write_conserved_elements <- function(x, cneType=c('CNEFinal', 'CNEMerged'), elementType=c('cne', 'ce'), cne_dir='/project/wig/tobias/reg_evo/data/CNEs/CNEr') {
+write_conserved_elements <- function(x, processing=c('CNEFinal', 'CNEMerged'), elementType=c('cne', 'ce'), cne_dir='/project/wig/tobias/reg_evo/data/CNEs/CNEr') {
   # function to write CEs / CNEs.
-  x <- sort(get(cneType)(x)) # equivalent to CNEFinal(x) or CNEMerged(x) given the passed argument cneType
-  cneType <- tolower(gsub('CNE', '', cneType))
+  x <- sort(get(processing)(x)) # equivalent to CNEFinal(x) or CNEMerged(x) given the passed argument processing
+  processing <- tolower(gsub('CNE', '', processing))
   gr1 <- x@first
   gr1$name <- paste0(seqnames(x@second), ':', start(x@second), '-', end(x@second))
   gr2 <- x@second
   gr2$name <- paste0(seqnames(x@first), ':', start(x@first), '-', end(x@first))
   strand(gr1) <- strand(gr2)
-  export.bed(gr1, file.path(cne_dir, sprintf('%s_%s_%s_%s_%s_%s.bed', elementType, cneType, spcs1, spcs2, identity, window)))
+  export.bed(gr1, file.path(cne_dir, sprintf('%s_%s_%s_%s_%s_%s.bed', elementType, processing, spcs1, spcs2, identity, window)))
   # data1 <- data.frame(x)[,c(1,2,3,6,7,8,10,11,12)]
-  # write.table(data1, file.path(cne_dir, sprintf('%s_%s_%s_%s_%s_%s', elementType, cneType, spcs1, spcs2, identity, window)), sep='\t', quote=F, row.names=F, col.names=F)
-  export.bed(gr2, file.path(cne_dir, sprintf('%s_%s_%s_%s_%s_%s.bed', elementType, cneType, spcs2, spcs1, identity, window)))
+  # write.table(data1, file.path(cne_dir, sprintf('%s_%s_%s_%s_%s_%s', elementType, processing, spcs1, spcs2, identity, window)), sep='\t', quote=F, row.names=F, col.names=F)
+  export.bed(gr2, file.path(cne_dir, sprintf('%s_%s_%s_%s_%s_%s.bed', elementType, processing, spcs2, spcs1, identity, window)))
   # data2 <- data.frame(x)[,c(6,7,8,1,2,3,10,11,12)]
-  # write.table(data2, file.path(cne_dir, sprintf('%s_%s_%s_%s_%s_%s', elementType, cneType, spcs2, spcs1, identity, window)), sep='\t', quote=F, row.names=F, col.names=F)
+  # write.table(data2, file.path(cne_dir, sprintf('%s_%s_%s_%s_%s_%s', elementType, processing, spcs2, spcs1, identity, window)), sep='\t', quote=F, row.names=F, col.names=F)
   return(invisible())
 }
 
@@ -108,12 +108,12 @@ if (type == 'cne' & all(fltr[[spcs1]] == r[[spcs1]]) & all(fltr[[spcs2]] == r[[s
 
   cat(sprintf('merging %ss\n', toupper(type)))
   y <- cneMerge(y) # ~ 10 sec
-  if (cneType == 'merged') {
+  if (processing == 'merged') {
     cat(sprintf('writing merged %ss to file\n', toupper(type)))
   	write_conserved_elements(y, 'CNEMerged', type, cne_dir)
   }
   
-  if (cneType == 'final') {
+  if (processing == 'final') {
     cat('mapping back to genome, removing repeats\n')
   	y <- blatCNE(y) # 1.5 hours
   	cat(sprintf('writing final %ss to file\n', toupper(type)))

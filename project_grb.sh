@@ -7,21 +7,22 @@
 ### Why? Here I project point coordinates, later I will load the point coordinates to R and resize it to $binsize with fix='center'.
 ### The bigwig files are also binned to windows of size $binsize. That way, I can assign unique bins and don't have to aggregate counts, which would distort the distribution.
 ### New: pass the path to the pwaln_pyarrow.pkl file (multiple ones depending on set of species to use, e.g. zf_centered or mm_centered)
-[[ $# != 6 ]] && { echo "Usage: ./project_grb.sh grb_coords.bed reference_species query_species binsize path_pwaln_pkl nthreads"; exit 1; }
+[[ $# != 7 ]] && { echo "Usage: ./project_grb.sh grb_coords.bed reference_species query_species binsize half_life_distance path_pwaln_pkl nthreads"; exit 1; }
 
 # parse args
 grb_bed=$1
 ref=$2
 qry=$3
 binsize=$4
-path_pwaln_pkl=$5
+half_life_distance=$5
+path_pwaln_pkl=$6
 
 # check if bed-file contains at least 4 columns
 [ $(awk '{print NF}' $grb_bed | sort -nu | head -n 1) -lt 4 ] && echo "Error: bed-file must contain at least 4 columns with the 4th being the GRB ID / name." && exit 1
 
 # loop through bed-file
 while IFS='' read -r LINE || [ -n "${LINE}" ]; do
-	nthreads=$6 # reset to the original input if the variable was set to $l in the previous iteration
+	nthreads=$7 # reset to the original input if the variable was set to $l in the previous iteration
 	# put coordinates of current line into bash array
 	grb_coords=($LINE)
 	grb_name=${grb_coords[3]}
@@ -35,7 +36,7 @@ while IFS='' read -r LINE || [ -n "${LINE}" ]; do
 
 	# project GRB bins (parallelize)
 	mkdir -p tmp
-	ERT=$(printf "%.0f" "$(echo "2*$l/$nthreads" | bc)") # based on a estimated average runtime of 2 min per job
+	ERT=$(printf "%.0f" "$(echo "1*$l/$nthreads" | bc)") # based on a estimated average runtime of 1 min per job
 	echo "Projecting $grb_name from $ref to $qry in $l bins of size $binsize using $nthreads threads in parallel"
 	echo "Estimated runtime: $((ERT/60))h $(bc <<< $ERT%60)m"
 	sem_id="project_${grb_name}_$(hostname)_${RANDOM}"
@@ -44,7 +45,7 @@ while IFS='' read -r LINE || [ -n "${LINE}" ]; do
 		id="${grb_name}_${i}"
 		coord=${grb_coords[0]}:${grb_chunks[$i]}
 		echo $id $coord
-		sem --id $sem_id -j${nthreads} project_dijkstra.py $ref $qry $coord $id $path_pwaln_pkl # sem is an alias for parallel --semaphore. A counting semaphore will allow a given number of jobs to be started in the background.
+		sem --id $sem_id -j${nthreads} project_dijkstra.py $ref $qry $coord $id $half_life_distance $path_pwaln_pkl # sem is an alias for parallel --semaphore. A counting semaphore will allow a given number of jobs to be started in the background.
 	done
 	sem --id $sem_id --wait # wait until all sem jobs are completed before moving on
 	endtime=$(date -u '+%s')

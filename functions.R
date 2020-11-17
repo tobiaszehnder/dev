@@ -1,5 +1,5 @@
 library(rtracklayer); library(motifcounter); library(ggplot2); library(RColorBrewer); library(dplyr); library(ehmm); library(depmixS4); library(fANCOVA)
-library(TxDb.Hsapiens.UCSC.hg19.knownGene); library(TxDb.Ggallus.UCSC.galGal4.refGene)
+library(TxDb.Hsapiens.UCSC.hg19.knownGene); library(TxDb.Ggallus.UCSC.galGal6.refGene)
 
 # function to load repeats from '/project/wig/tobias/reg_evo/data/repeats'
 get_repeats <- function(spcs, repeat_dir='/project/wig/tobias/reg_evo/data/repeats') {

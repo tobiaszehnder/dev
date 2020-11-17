@@ -8,7 +8,7 @@
 ### Use it for one biological replicate at a time and manually merge them later.
 
 ###
-# Usage: ./process_fastq_pairedend.sh sample=H3KXyZ_stageXY_repN srr='SRR111111_A SRR111111_B'
+# Usage: ./process_fastq_pairedend.sh assembly=mm10 sample=H3K27ac_FL_E10.5_R1 srr='SRR111111_A SRR111111_B'
 ###
 
 ROOT=/project/wig/tobias/reg_evo/data

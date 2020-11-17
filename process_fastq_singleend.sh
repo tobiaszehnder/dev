@@ -3,7 +3,7 @@
 ### THIS SCRIPT PROCESSES SINGLE-END READS (use bwa mem for paired-end) ###
 
 ###
-# Usage: ./process_fastq_singleend.sh sample=H3KXyZ_stageXY srr='SRR111111 SRR222222 ...'
+# Usage: ./process_fastq_singleend.sh assembly=mm10 sample=H3K27ac_FL_E10.5 srr='SRR111111 SRR222222 ...'
 ###
 
 ROOT=/project/wig/tobias/reg_evo/data

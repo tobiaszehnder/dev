@@ -1,6 +1,16 @@
 library(rtracklayer); library(motifcounter); library(ggplot2); library(RColorBrewer); library(dplyr); library(ehmm); library(depmixS4); library(fANCOVA)
 library(TxDb.Hsapiens.UCSC.hg19.knownGene); library(TxDb.Ggallus.UCSC.galGal6.refGene)
 
+# function for computing the percentage overlap of two ranges, i.e. what fraction of each region in gr1 is overlapped by regions of gr2
+percent_overlap <- function(gr1, gr2) {
+  ov <- suppressWarnings(findOverlaps(gr2, gr1))
+  overlaps <- pintersect(gr2[queryHits(ov)], gr1[subjectHits(ov)])
+  percentOverlap <- width(overlaps) / width(gr1[subjectHits(ov)])
+  gr1$percentOverlap <- 0
+  gr1$percentOverlap[subjectHits(ov)] <- percentOverlap
+  return(gr1$percentOverlap)
+}
+
 # function to load repeats from '/project/wig/tobias/reg_evo/data/repeats'
 get_repeats <- function(spcs, repeat_dir='/project/wig/tobias/reg_evo/data/repeats') {
   if (!dir.exists(repeat_dir)) stop('repeat_dir does not exist')

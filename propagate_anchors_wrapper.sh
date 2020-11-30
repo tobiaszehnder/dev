@@ -1,1 +1,0 @@
-/home/zehnder/programs/github/genomic_projection/SAPP/propagate_anchors_wrapper.sh

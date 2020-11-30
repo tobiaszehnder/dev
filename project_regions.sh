@@ -1,1 +1,0 @@
-/home/zehnder/programs/github/genomic_projection/IPP/project_regions.sh

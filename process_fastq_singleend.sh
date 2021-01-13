@@ -2,13 +2,14 @@
 
 ### THIS SCRIPT PROCESSES SINGLE-END READS (use bwa mem for paired-end) ###
 
+### For automation purposes (multiple biol. replicates), this single-end script stores the fastq files in the bam folder and not in a separate fastq folder like the paired-end script.
+
 ###
-# Usage: ./process_fastq_singleend.sh assembly=mm10 sample=H3K27ac_FL_E10.5 srr='SRR111111 SRR222222 ...'
+# Usage: ./process_fastq_singleend.sh root=/project/wig/tobias/reg_evo/data assembly=mm10 sample=H3K27ac_FL_E10.5 srr='SRR111111 SRR222222 ...'
 ###
 
-ROOT=/project/wig/tobias/reg_evo/data
-GENOME_FASTA=$(ROOT)/fasta/$(assembly).fa
-GENOME=$(ROOT)/assembly/$(assembly).sizes
+GENOME_FASTA=$(root)/fasta/$(assembly).fa
+GENOME=$(root)/assembly/$(assembly).sizes
 
 DATA_DIR=.
 
@@ -44,13 +45,17 @@ $(BAMDIR)/$(SAMPLE).merged.bam: $(addprefix $(BAMDIR)/, $(addsuffix .sort.rmdup.
 %.fastq:
 	fastq-dump -O $(dir $@) $(notdir $(basename $@))
 
+# compress fastq
+%.fastq.gz: %.fastq
+	gzip -c $^
+
 # compute alignment
-%.sai: %.fastq
+%.sai: %.fastq.gz
 	# bwa aln -t 64 -k 2 -n 3 -0 $(GENOME_FASTA) $^ > $@
 	bwa aln -t 64 -k 2 -n 3 $(patsubst %.fa,%,$(GENOME_FASTA)) $^ > $@
 
 # convert to sam
-%.full.sam: %.sai %.fastq
+%.full.sam: %.sai %.fastq.gz
 	# bwa samse $(GENOME_FASTA) $^ > $@
 	bwa samse $(patsubst %.fa,%,$(GENOME_FASTA)) $^ > $@
 

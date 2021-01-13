@@ -8,15 +8,15 @@
 ### Use it for one biological replicate at a time and manually merge them later.
 
 ###
-# Usage: ./process_fastq_pairedend.sh assembly=mm10 sample=H3K27ac_FL_E10.5_R1 srr='SRR111111_A SRR111111_B'
+# Usage: ./process_fastq_pairedend.sh root=/project/wig/tobias/reg_evo/data assembly=mm10 sample=H3K27ac_FL_E10.5_R1 srr='SRR111111_A SRR111111_B'
 ###
 
-ROOT=/project/wig/tobias/reg_evo/data
-GENOME_FASTA=$(ROOT)/fasta/$(assembly)
-GENOME=$(ROOT)/assembly/$(assembly).sizes
+GENOME_FASTA=$(root)/fasta/$(assembly)
+GENOME=$(root)/assembly/$(assembly).sizes
 
 DATA_DIR=.
 
+FASTQDIR=$(DATA_DIR)/fastq
 BAMDIR=$(DATA_DIR)/bam
 BWDIR=$(DATA_DIR)/bigwig
 SAMPLE=$(sample)
@@ -49,8 +49,12 @@ all: $(TARGETS)
 %.fastq:
 	fastq-dump -O $(dir $@) $(notdir $(basename $@))
 
+# compress fastq
+%.fastq.gz: %.fastq
+	gzip -c $^
+
 # compute alignment
-$(BAMDIR)/$(SAMPLE).full.sam: $(addprefix $(BAMDIR)/, $(addsuffix .fastq, $(srr)))
+$(BAMDIR)/$(SAMPLE).full.sam: $(addprefix $(FASTQDIR)/, $(addsuffix .fastq.gz, $(srr)))
 	bwa mem -t 64 $(GENOME_FASTA) $^ > $@
 
 # filter reads (minimum quality of 30) and convert to bam

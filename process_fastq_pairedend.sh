@@ -11,7 +11,7 @@
 # Usage: ./process_fastq_pairedend.sh root=/project/wig/tobias/reg_evo/data assembly=mm10 sample=H3K27ac_FL_E10.5_R1 srr='SRR111111_A SRR111111_B'
 ###
 
-GENOME_FASTA=$(root)/fasta/$(assembly)
+GENOME_FASTA=$(root)/fasta/$(assembly).fa
 GENOME=$(root)/assembly/$(assembly).sizes
 
 DATA_DIR=.
@@ -21,7 +21,7 @@ BAMDIR=$(DATA_DIR)/bam
 BWDIR=$(DATA_DIR)/bigwig
 SAMPLE=$(sample)
 
-TARGETS = $(BAMDIR)/$(SAMPLE).sort.rmdup.bam.bai
+TARGETS = $(BAMDIR)/$(SAMPLE).sort.rmdup.bam.csi
 
 # ------------------------------------------------------------------------------
 
@@ -70,13 +70,13 @@ $(BAMDIR)/$(SAMPLE).full.sam: $(addprefix $(FASTQDIR)/, $(addsuffix .fastq.gz, $
 	samtools rmdup -s $< $@
 
 # create index
-%.bam.bai: %.bam
-	samtools index $<
+%.bam.csi: %.bam
+	samtools index -c $< # -c flag creates a CSI index. BAI has a chromosome size limit of 512 Mbp.
 
 # ------------------------------------------------------------------------------
 
 clean:
-	$(RM) $(DATA_DIR)/*.bam.bai
+	$(RM) $(DATA_DIR)/*.bam.csi
 	$(RM) $(DATA_DIR)/*.bam
 	$(RM) $(DATA_DIR)/*.sam
 	$(RM) $(DATA_DIR)/*.sai

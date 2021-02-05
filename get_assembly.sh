@@ -38,7 +38,7 @@ elif [ "$#" -eq 2 ]; then
 	fi
 
 else
-	echo "Usage: ./get_assembly.sh <output_dir> <$assembly_name> <optional_genome_fasta_file>"
+	echo "Usage: ./get_assembly.sh <output_dir> <assembly_name> <optional_genome_fasta_file>"
 	exit 1
 fi
 

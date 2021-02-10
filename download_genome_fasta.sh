@@ -2,13 +2,11 @@
 
 ### This script is for downloading, decompressing and indexing genome fasta files
 
-### Usage: ./download_genome_fasta.sh build=mm10 link=ftp.ncbi.nlm.nih.gov/*.fna.gz
+### Usage: ./download_genome_fasta.sh outdir=/project/MDL_ChIPseq/data/genome/fasta build=mm10 link=ftp.ncbi.nlm.nih.gov/*.fna.gz
 
 ### IMPORTANT: omit leading 'ftp://' or 'http://' in link. make has problems with colons...
 
-root=/project/MDL_ChIPseq/data/genome/fasta
-
-TARGETS = $(root)/$(build).fa.fai
+TARGETS = $(outdir)/$(build).fa.fai
 
 # ------------------------------------------------------------------------------
 
@@ -21,7 +19,7 @@ all: $(TARGETS)
 
 # ------------------------------------------------------------------------------
 
-$(root)/$(build).fa.gz:
+$(outdir)/$(build).fa.gz:
 	curl -o $@ $(link)
 
 %.fa: %.fa.gz

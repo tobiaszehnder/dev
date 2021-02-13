@@ -1,7 +1,23 @@
 #! /usr/bin/make -f
 
-# usage: ./compute_pairwise_alignment.sh data_dir=/path/to/data S1=species1 S2=species2
+# usage: ./compute_pairwise_alignment.sh data_dir=/path/to/data S1=species1 S2=species2 nthreads=1
 # $data_dir must be the folder where all assembly, alignment and fasta folders are stored.
+
+ifndef data_dir
+echo $(error data_dir is not set)
+endif
+
+ifndef S1
+echo $(error S1 is not set)
+endif
+
+ifndef data_dir
+echo $(error S2 is not set)
+endif
+
+ifndef nthreads
+nthreads=1
+endif
 
 # DATA_DIR = $(realpath $(data_dir))
 DATA_DIR = $(data_dir)
@@ -17,11 +33,15 @@ TARGETS = $(OUTDIR)/$(S1).$(S2).net.axt.gz
 
 all: $(TARGETS)
 
-## generate rules
 ## -----------------------------------------------------------------------------
 
-$(ASSEMBLY_DIR)%.2bit: # $(FASTA_DIR)/%.fa
-	get_assembly.sh $(ASSEMBLY_DIR) $(notdir $(patsubst %.2bit,%,$@))
+.DELETE_ON_ERROR:
+# .SECONDARY:
+
+## -----------------------------------------------------------------------------
+
+$(ASSEMBLY_DIR)%.2bit: $(FASTA_DIR)/%.fa
+	get_assembly.sh $(ASSEMBLY_DIR) $(notdir $(patsubst %.2bit,%,$@)) $<
 
 # # ifeq ("$(wildcard $@)", "")
 # # 	@echo "Error: $@ does not exist"
@@ -36,12 +56,13 @@ $(ASSEMBLY_DIR)%.2bit: # $(FASTA_DIR)/%.fa
 
 $(FASTA_DIR)/%.fa:
 	echo "Download $(notdir $(patsubst %.fa,%,$@)) genome fasta file and save it to $@"
+	exit 1
 
 $(LASTDB_DIR)/%.prj: $(FASTA_DIR)/%.fa
-	lastdb -c $(patsubst %.prj,%,$@) $<
+	lastdb -P $(nthreads) -c $(patsubst %.prj,%,$@) $<
 
-$(ALIGNMENT_DIR)/$(S1).$(S2).maf: $(LASTDB_DIR)/$(S1).prj $(FASTA_DIR)/$(S2).fa
-	lastal $(patsubst %.prj,%,$(word 1,$^)) $(word 2,$^) > $@
+ $(ALIGNMENT_DIR)/$(S1).$(S2).maf: $(LASTDB_DIR)/$(S1).prj $(FASTA_DIR)/$(S2).fa
+	lastal -P $(nthreads) $(patsubst %.prj,%,$(word 1,$^)) $(word 2,$^) > $@
 
 %.psl: %.maf
 	maf-convert psl $< > $@

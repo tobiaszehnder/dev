@@ -11,7 +11,7 @@ if [[ ! -e $assembly_dir/$assembly_name.2bit ]]; then
 		# from fasta
 		echo compute 2bit from fasta
 		fasta=$3
-		faToTwoBit $fasta $assembly_dir/$assembly_name.2bit
+		faToTwoBit -long $fasta $assembly_dir/$assembly_name.2bit
 
 	elif [ "$#" -eq 2 ]; then
 		# download

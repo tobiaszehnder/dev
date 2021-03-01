@@ -41,7 +41,7 @@ fi
 if [ -f $assembly_dir/$assembly_name.2bit ]; then
 	if [ ! -f $assembly_dir/$assembly_name.sizes ]; then
 		echo "Retrieving $assembly_name genome size"
-		get_chromosome_sizes.R $assembly_dir/$assembly_name.2bit # script that creates tab-delimited .genome file with chromosomes and their lengths
+		twoBitInfo ${assembly_dir}/$assembly_name.2bit stdout | sort -k2rn > ${assembly_dir}/$assembly_name.sizes
 	else
 		echo "File exists: $assembly_dir/$assembly_name.sizes"
 	fi

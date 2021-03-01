@@ -26,21 +26,25 @@ LASTDB_DIR = $(DATA_DIR)/alignment/lastdb
 FASTA_DIR = $(DATA_DIR)/fasta
 ALIGNMENT_DIR = $(DATA_DIR)/alignment
 OUTDIR = $(ALIGNMENT_DIR)/axtNet
+directories = $(ASSEMBLY_DIR) $(LASTDB_DIR) $(FASTA_DIR) $(OUTDIR)
+$(shell mkdir -p $(directories))
 
 TARGETS = $(OUTDIR)/$(S1).$(S2).net.axt.gz
 
 ## -----------------------------------------------------------------------------
+
+# .PHONY: directories
 
 all: $(TARGETS)
 
 ## -----------------------------------------------------------------------------
 
 .DELETE_ON_ERROR:
-# .SECONDARY:
+.SECONDARY:
 
 ## -----------------------------------------------------------------------------
 
-$(ASSEMBLY_DIR)%.2bit: $(FASTA_DIR)/%.fa
+$(ASSEMBLY_DIR)/%.2bit: $(FASTA_DIR)/%.fa
 	get_assembly.sh $(ASSEMBLY_DIR) $(notdir $(patsubst %.2bit,%,$@)) $<
 
 # # ifeq ("$(wildcard $@)", "")
@@ -49,7 +53,7 @@ $(ASSEMBLY_DIR)%.2bit: $(FASTA_DIR)/%.fa
 # # endif
 
 %.sizes: %.2bit
-	get_chromosome_sizes.R $<
+	get_chromosome_sizes.sh $<
 
 # $(FASTA_DIR)/%.fa: $(ASSEMBLY_DIR)/%.2bit
 # 	twoBitToFa $< $@
@@ -80,7 +84,7 @@ $(LASTDB_DIR)/%.prj: $(FASTA_DIR)/%.fa
 	chainNet $< $(ASSEMBLY_DIR)/$(S1).sizes $(ASSEMBLY_DIR)/$(S2).sizes stdout /dev/null | netSyntenic stdin $@
 
 %.net.axt: %.noClass.net %.all.pre.chain $(ASSEMBLY_DIR)/$(S1).2bit $(ASSEMBLY_DIR)/$(S2).2bit
-	netToAxt $(word 1,$^) $(word 2,$^) $(ASSEMBLY_DIR)/$(S1).2bit $(ASSEMBLY_DIR)/$(S2).2bit $@
+	netToAxt $^ $@
 
 $(OUTDIR)/%.net.axt.gz: $(ALIGNMENT_DIR)/%.net.axt
 	gzip -c $< > $@

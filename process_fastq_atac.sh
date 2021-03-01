@@ -82,7 +82,7 @@ clean:
 	$(RM) $(DATA_DIR)/*.bam.csi
 	$(RM) $(DATA_DIR)/*.bam
 	$(RM) $(DATA_DIR)/*.sam
-    $(RM) $(DATA_DIR)/*.sai
+	$(RM) $(DATA_DIR)/*.sai
 
 distclean: clean
 	$(RM) $(DATA_DIR)/*.fastq  
